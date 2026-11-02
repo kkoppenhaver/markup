@@ -1,0 +1,6 @@
+# written by Claude Code when the mod loads
+.claude-plugin/types/
+# review inboxes never belong in this repo
+.review/
+.DS_Store
+node_modules/

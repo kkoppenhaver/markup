@@ -1,0 +1,12 @@
+{
+  "modules": ["./register.tsx"],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/scripts/inject_notes.py", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

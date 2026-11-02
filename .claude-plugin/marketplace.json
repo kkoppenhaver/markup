@@ -1,0 +1,13 @@
+{
+  "name": "keanan",
+  "owner": { "name": "Keanan Koppenhaver" },
+  "description": "Plugins and mods by Keanan Koppenhaver.",
+  "plugins": [
+    {
+      "name": "markup-review",
+      "source": "./",
+      "description": "Scribble on a page, retype its copy, press Cmd+Enter, and Claude gets the notes.",
+      "version": "0.2.0"
+    }
+  ]
+}
