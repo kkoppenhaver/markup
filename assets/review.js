@@ -2,7 +2,7 @@
 // Claude reads everything back with window.__review.get() (JSON) or window.__review.markdown().
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Tldraw, createShapeId } from 'tldraw';
+import { Tldraw, toRichText } from 'tldraw';
 
 const params = new URLSearchParams(location.search);
 const targetUrl = params.get('url') || '/';
@@ -275,5 +275,5 @@ async function send() {
 }
 $('#sendBtn').addEventListener('click', send);
 
-window.__review = { get, markdown, png, send, clear: clearAll, setMode, scrollTo: (y) => win && win.scrollTo({ top: y, behavior: 'instant' }) };
+window.__review = { get, markdown, png, send, clear: clearAll, setMode, scrollTo: (y) => win && win.scrollTo({ top: y, behavior: 'instant' }), get editor() { return editor; }, toRichText };
 try { const m = localStorage.getItem(storeKey + ':mode'); if (m) setMode(m); } catch (e) {}

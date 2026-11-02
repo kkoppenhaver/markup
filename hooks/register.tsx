@@ -306,7 +306,7 @@ export const register: Register = on => {
     const cwd = await $.session.cwd()
     try {
       const { url, opened } = await openReview($, cwd, { root: input.root, proxy: input.proxy, page: input.page })
-      return { result: { url, opened, inbox: inboxOf(cwd) } }
+      return { result: `Review layer: ${url}${opened ? ' (opened in the browser)' : ' (open it in the browser)'}. Notes land in ${inboxOf(cwd)}. Tell the user: draw with D, arrows A, sticky notes N; backtick switches to editing copy; Ctrl+/ is the TL;DR box; Cmd+Enter sends.` }
     } catch (err) {
       return { deny: `markup-review: ${err instanceof Error ? err.message : String(err)}` }
     }
@@ -314,7 +314,10 @@ export const register: Register = on => {
 
   on('tool.call', { tool: TOOL_NOTES }, async $ => {
     const list = await read($, notes)
-    return { result: { inbox: inboxOf(await $.session.cwd()), notes: list.map(({ text, ...rest }) => rest) } }
+    const inbox = inboxOf(await $.session.cwd())
+    if (list.length === 0) return { result: `No review notes yet. Inbox: ${inbox}` }
+    const lines = list.map(n => `${n.sentAt} ${n.page} [${n.status}] ${n.edits} edits, ${n.marks} marks${n.tldr ? ` TL;DR: ${n.tldr}` : ''}\n  file: ${n.path}${n.pngPath ? `\n  png: ${n.pngPath}` : ''}`)
+    return { result: `Inbox: ${inbox}\n\n${lines.join('\n')}` }
   })
 
   on('turn.complete', async ($, e, next) => {

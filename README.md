@@ -6,6 +6,8 @@ Claude Code produces more pages and copy than I can keep up with in chat, and de
 
 This plugin puts a [tldraw](https://tldraw.dev) canvas over any local page so you can draw arrows, scribble notes, and retype the copy right where it sits. Then one keystroke hands it all to Claude.
 
+![The review layer over a page: an arrow at the headline, a circled line with "drop this line?" written beside it, a sentence struck through in the copy, a sticky note, and the TL;DR box, with Send to Claude in the top right](docs/review-page.png)
+
 ## Get it running in Claude Code
 
 The plugin is named `markup-review` and lives in a marketplace named `keanan`. In Claude Code, run:
