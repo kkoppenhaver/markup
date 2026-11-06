@@ -15,8 +15,12 @@ let editor = null;
 let doc = null;       // iframe document
 let win = null;       // iframe window
 let originals = {};   // data-rv id -> { selector, text }
-let savedEdits = {};  // data-rv id -> innerHTML
-try { savedEdits = JSON.parse(localStorage.getItem(storeKey + ':edits') || '{}'); } catch (e) {}
+let savedEdits = {};  // data-rv id -> { html, before }  (before = the page text the edit was made against)
+try {
+  const raw = JSON.parse(localStorage.getItem(storeKey + ':edits') || '{}');
+  // Entries saved by an older version are bare innerHTML strings with nothing to verify them against; drop them.
+  Object.keys(raw).forEach((id) => { if (raw[id] && typeof raw[id] === 'object' && typeof raw[id].html === 'string') savedEdits[id] = raw[id]; });
+} catch (e) {}
 
 $('#urlLabel').textContent = targetUrl;
 iframe.src = targetUrl;
@@ -94,8 +98,20 @@ function indexPage() {
     el.setAttribute('data-rv', id);
     originals[id] = { selector: cssPath(el), text: readText(el) };
   });
-  // Re-apply edits saved from a previous visit.
-  Object.keys(savedEdits).forEach((id) => { const el = doc.querySelector('[data-rv="' + id + '"]'); if (el) el.innerHTML = savedEdits[id]; });
+  // Re-apply edits saved from a previous visit, but only onto the text they were made against. When the
+  // source has changed since (Claude applied the edit, or elements were added and the ids shifted), the
+  // edit is stale: drop it rather than paint it onto the wrong element.
+  let dropped = 0;
+  Object.keys(savedEdits).forEach((id) => {
+    const el = doc.querySelector('[data-rv="' + id + '"]');
+    const saved = savedEdits[id];
+    if (el && originals[id] && saved.before === originals[id].text) el.innerHTML = saved.html;
+    else { delete savedEdits[id]; dropped++; }
+  });
+  if (dropped) {
+    try { localStorage.setItem(storeKey + ':edits', JSON.stringify(savedEdits)); } catch (e) {}
+    setTimeout(() => toast(dropped + (dropped === 1 ? ' edit' : ' edits') + ' already in the source, dropped'), 300);
+  }
 }
 function onPageLoad() {
   doc = iframe.contentDocument; win = iframe.contentWindow;
@@ -103,7 +119,7 @@ function onPageLoad() {
   indexPage();
   doc.addEventListener('input', () => {
     const changed = {};
-    doc.querySelectorAll('[data-rv]').forEach((el) => { const id = el.getAttribute('data-rv'); if (originals[id] && readText(el) !== originals[id].text) changed[id] = el.innerHTML; });
+    doc.querySelectorAll('[data-rv]').forEach((el) => { const id = el.getAttribute('data-rv'); if (originals[id] && readText(el) !== originals[id].text) changed[id] = { html: el.innerHTML, before: originals[id].text }; });
     savedEdits = changed;
     try { localStorage.setItem(storeKey + ':edits', JSON.stringify(changed)); } catch (e) {}
     updateCount();

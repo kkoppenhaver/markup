@@ -66,4 +66,4 @@ If the user says "read my notes" and no prompt has arrived, call `review_notes` 
 - In Edit copy: click into text and retype. Cmd+Shift+X strikes the selection through.
 - Ctrl+/: TL;DR box. Cmd+Enter: send to Claude. Clear all needs two clicks.
 
-Marks and edits persist per page in the browser, so a half-finished review survives a reload.
+Marks and edits persist per page in the browser, so a half-finished review survives a reload. A saved edit is re-applied only while the page still shows the text it was made against; once the source changes (the edit was applied, or elements were added), the stale edit is dropped on reload and the page toasts how many went.

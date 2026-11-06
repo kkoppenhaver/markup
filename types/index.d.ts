@@ -10,6 +10,8 @@ export type NoteFile = {
   edits: number
   marks: number
   tldr: string
+  /** One or two sentences, derived from the json: what was retyped and what was drawn. */
+  summary: string
   status: NoteStatus
   text: string
 }

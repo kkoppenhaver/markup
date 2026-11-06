@@ -61,6 +61,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self.forward()
         return super().do_GET()
 
+    def end_headers(self):
+        # Static pages must never be cached: the reviewer edits the source between loads.
+        if not self.path.startswith("/__review"):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_HEAD(self):
         if Handler.proxy and not self.path.startswith("/__review"):
             return self.forward()

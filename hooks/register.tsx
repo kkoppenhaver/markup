@@ -9,7 +9,7 @@ const PANE = 'markup-review'
 const TOOL_OPEN = `mcp__${PLUGIN}__review_open`
 const TOOL_NOTES = `mcp__${PLUGIN}__review_notes`
 
-const notes = atom({ plugin: 'markup-review', key: 'notes' } as const, [] as NoteFile[], { shape: 'notes-1' })
+const notes = atom({ plugin: 'markup-review', key: 'notes' } as const, [] as NoteFile[], { shape: 'notes-2' })
 const server = atom({ plugin: 'markup-review', key: 'server' } as const, null as ServerInfo | null, { shape: 'server-1' })
 
 type Eng = EngineInterface
@@ -30,19 +30,63 @@ function field(text: string, name: string): string {
   return m?.[1]?.trim() ?? ''
 }
 
+type Edit = { selector?: string; before?: string; after?: string }
+type Mark = { kind?: string; text?: string; anchor?: { selector?: string; text?: string } | null }
+
+const LABELS: Record<string, string> = { h1: 'title', h2: 'heading', h3: 'heading', h4: 'heading', p: 'paragraph', li: 'list item', figcaption: 'caption', a: 'link', blockquote: 'quote', button: 'button', td: 'cell', th: 'cell' }
+
+function snip(text: string, words = 5): string {
+  const w = (text ?? '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean)
+  return w.length <= words ? w.join(' ') : `${w.slice(0, words).join(' ')}…`
+}
+
+function labelFor(selector: string): string {
+  const tag = (selector.split('>').pop() ?? '').trim().replace(/[:#.[].*$/, '').toLowerCase()
+  return LABELS[tag] ?? (tag || 'element')
+}
+
+// One or two sentences for the pane: what was retyped, then what was drawn. Deterministic, built from the json.
+export function summarize(edits: Edit[], marks: Mark[]): string {
+  const parts: string[] = []
+  const retyped = edits.filter(e => (e.after ?? '').trim())
+  const cut = edits.filter(e => !(e.after ?? '').trim())
+  if (retyped.length) {
+    const shown = retyped.slice(0, 3).map(e => `${labelFor(e.selector ?? '')} "${snip(e.before ?? '')}" → "${snip(e.after ?? '')}"`)
+    const more = retyped.length - shown.length
+    parts.push(`Retyped ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}.`)
+  }
+  if (cut.length) {
+    const shown = cut.slice(0, 2).map(e => `${labelFor(e.selector ?? '')} "${snip(e.before ?? '')}"`)
+    const more = cut.length - shown.length
+    parts.push(`Cut ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}.`)
+  }
+  if (marks.length) {
+    const counts = new Map<string, number>()
+    for (const m of marks) counts.set(m.kind ?? 'mark', (counts.get(m.kind ?? 'mark') ?? 0) + 1)
+    const kinds = Array.from(counts, ([k, n]) => `${n} ${k}${n === 1 ? '' : 's'}`)
+    const said = marks.map(m => (m.text ?? '').trim()).filter(Boolean).slice(0, 2).map(t => `"${snip(t, 8)}"`)
+    const where = marks.map(m => m.anchor?.selector).filter((x): x is string => !!x).slice(0, 2).map(labelFor)
+    const tail = said.length ? ` saying ${said.join(', ')}` : where.length ? ` on ${Array.from(new Set(where)).join(' and ')}` : ''
+    parts.push(`Drew ${kinds.join(', ')}${tail}.`)
+  }
+  return parts.join(' ')
+}
+
 async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> {
   const path = `${inbox}/${name}`
   const text = await $.fs.read(path)
   let edits = 0
   let marks = 0
   let tldr = ''
+  let summary = ''
   const jsonName = field(text, 'json')
   if (jsonName && (await $.fs.exists(`${inbox}/${jsonName}`))) {
     try {
-      const data = JSON.parse(await $.fs.read(`${inbox}/${jsonName}`)) as { edits?: unknown[]; marks?: unknown[]; tldr?: string }
+      const data = JSON.parse(await $.fs.read(`${inbox}/${jsonName}`)) as { edits?: Edit[]; marks?: Mark[]; tldr?: string }
       edits = (data.edits ?? []).length
       marks = (data.marks ?? []).length
       tldr = String(data.tldr ?? '').trim()
+      summary = summarize(data.edits ?? [], data.marks ?? [])
     } catch {
       // a half-written json file: counts stay at zero, the markdown still carries everything
     }
@@ -57,6 +101,7 @@ async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> 
     edits,
     marks,
     tldr,
+    summary,
     status: 'new',
     text,
   }
@@ -316,7 +361,7 @@ export const register: Register = on => {
     const list = await read($, notes)
     const inbox = inboxOf(await $.session.cwd())
     if (list.length === 0) return { result: `No review notes yet. Inbox: ${inbox}` }
-    const lines = list.map(n => `${n.sentAt} ${n.page} [${n.status}] ${n.edits} edits, ${n.marks} marks${n.tldr ? ` TL;DR: ${n.tldr}` : ''}\n  file: ${n.path}${n.pngPath ? `\n  png: ${n.pngPath}` : ''}`)
+    const lines = list.map(n => `${n.sentAt} ${n.page} [${n.status}] ${n.edits} edits, ${n.marks} marks${n.tldr ? ` TL;DR: ${n.tldr}` : ''}${n.summary ? `\n  ${n.summary}` : ''}\n  file: ${n.path}${n.pngPath ? `\n  png: ${n.pngPath}` : ''}`)
     return { result: `Inbox: ${inbox}\n\n${lines.join('\n')}` }
   })
 
@@ -335,7 +380,7 @@ export const register: Register = on => {
     const { Box, Text, Button, Link } = $.ui.resolve(e)
     const srv = await read($, server)
     const list = await read($, notes)
-    const room = Math.max(1, Math.floor(((e.props.placement === 'dock' ? e.props.scroll.bodyRows : 30) - 5) / 4))
+    const room = Math.max(1, Math.floor(((e.props.placement === 'dock' ? e.props.scroll.bodyRows : 30) - 5) / 6))
 
     return (
       <Box flexDirection="column">
@@ -362,6 +407,7 @@ export const register: Register = on => {
               {n.edits} edits, {n.marks} marks, {n.status}
             </Text>
             {n.tldr ? <Text italic wrap="truncate">{n.tldr}</Text> : null}
+            {n.summary ? <Text dimColor wrap="wrap">{n.summary}</Text> : null}
           </Box>
         ))}
       </Box>
