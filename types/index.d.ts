@@ -9,6 +9,8 @@ export type NoteFile = {
   sentAt: string
   edits: number
   marks: number
+  /** Screenshots dropped onto the page; the files sit beside the notes in the inbox. */
+  images: number
   tldr: string
   /** One or two sentences, derived from the json: what was retyped and what was drawn. */
   summary: string

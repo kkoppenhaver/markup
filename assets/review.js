@@ -22,6 +22,24 @@ try {
   Object.keys(raw).forEach((id) => { if (raw[id] && typeof raw[id] === 'object' && typeof raw[id].html === 'string') savedEdits[id] = raw[id]; });
 } catch (e) {}
 
+let images = [];      // placed screenshots: { id, name, type, dataUrl, w, h, dpr, alt, caption, anchor, place }
+
+// Image files are too big for localStorage, so they live in IndexedDB under the page's key.
+const idb = {
+  open() {
+    if (this._db) return Promise.resolve(this._db);
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('markup-review', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('images');
+      r.onsuccess = () => { this._db = r.result; res(this._db); };
+      r.onerror = () => rej(r.error);
+    });
+  },
+  async get(key) { const db = await this.open(); return new Promise((res, rej) => { const r = db.transaction('images').objectStore('images').get(key); r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error); }); },
+  async set(key, val) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('images', 'readwrite'); t.objectStore('images').put(val, key); t.oncomplete = res; t.onerror = () => rej(t.error); }); },
+};
+async function saveImages() { try { await idb.set(storeKey, images); } catch (e) {} }
+
 $('#urlLabel').textContent = targetUrl;
 iframe.src = targetUrl;
 
@@ -122,9 +140,18 @@ function onPageLoad() {
     doc.querySelectorAll('[data-rv]').forEach((el) => { const id = el.getAttribute('data-rv'); if (originals[id] && readText(el) !== originals[id].text) changed[id] = { html: el.innerHTML, before: originals[id].text }; });
     savedEdits = changed;
     try { localStorage.setItem(storeKey + ':edits', JSON.stringify(changed)); } catch (e) {}
+    // Captions typed under placed images live in the page; keep the records in step so they survive a reload.
+    let captionsChanged = false;
+    images.forEach((r) => { const cap = doc.querySelector('[data-rv-caption="' + r.id + '"]'); if (cap && cap.textContent !== r.caption) { r.caption = cap.textContent; captionsChanged = true; } });
+    if (captionsChanged) void saveImages();
     updateCount();
   });
   doc.addEventListener('keydown', onKey, true);
+  // Drops and pastes that land in the frame itself (edit and browse modes, where the canvas lets pointer events through).
+  doc.addEventListener('dragover', (e) => { if (hasImageFiles(e.dataTransfer)) e.preventDefault(); }, true);
+  doc.addEventListener('drop', (e) => { if (!hasImageFiles(e.dataTransfer)) return; e.preventDefault(); e.stopImmediatePropagation(); void dropFiles(e.dataTransfer.files, e.clientX + win.scrollX, e.clientY + win.scrollY); }, true);
+  doc.addEventListener('paste', (e) => { const files = imageFiles(e.clipboardData); if (!files.length) return; e.preventDefault(); e.stopImmediatePropagation(); void pasteFiles(files); }, true);
+  void restoreImages();
   win.addEventListener('scroll', syncCamera, { passive: true });
   // Inside the page, Tab would leave the frame; harmless. Links open in the frame, which is fine for review.
   setMode(body.dataset.mode);
@@ -167,6 +194,159 @@ function anchorFor(px, py) {
   return { selector: cssPath(el), text, exact: !!best };
 }
 
+// ---------- screenshots dropped onto the page ----------
+// A dropped or pasted image goes into the page itself, as a figure with a caption, at the element under the
+// pointer. Text flows around it the way it will on the site, and the caption is edited like any other copy.
+const PLACEHOLDER = /\[(screenshot|image|photo|figure|img)\b/i;
+function imageFiles(dt) { return dt ? Array.from(dt.files || []).filter((f) => /^image\//.test(f.type)) : []; }
+function hasImageFiles(dt) { return !!dt && Array.from(dt.items || []).some((i) => i.kind === 'file' && /^image\//.test(i.type)); }
+function readFile(file) {
+  return new Promise((res, rej) => {
+    if (file.size > 25 * 1024 * 1024) return rej(new Error(file.name + ' is over 25 MB'));
+    const r = new FileReader();
+    r.onload = () => { const im = new Image(); im.onload = () => res({ dataUrl: r.result, w: im.naturalWidth, h: im.naturalHeight }); im.onerror = () => rej(new Error('not an image')); im.src = r.result; };
+    r.onerror = () => rej(r.error); r.readAsDataURL(file);
+  });
+}
+function blockOf(el) { return el.closest('figure, p, li, blockquote, h1, h2, h3, h4, h5, h6, pre, table, section, article, div') || el; }
+function humanName(name) {
+  const base = name.replace(/\.[a-z0-9]+$/i, '');
+  if (/^(screen ?shot|image|cleanshot|capture|img_?\d*|photo)\b/i.test(base) || /^\d{4}-\d{2}-\d{2}/.test(base)) return '';
+  return base.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// Decide where an image goes relative to the element under the pointer, and what to call it.
+function planFor(el, file) {
+  const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+  const anchor = { selector: cssPath(el), text: text.slice(0, 90) };
+  if (el.tagName === 'IMG') {
+    const cap = el.closest('figure') && el.closest('figure').querySelector('figcaption');
+    return { place: 'image', anchor, alt: el.alt || '', caption: cap ? cap.textContent.trim() : '' };
+  }
+  const block = blockOf(el);
+  const btext = (block.textContent || '').replace(/\s+/g, ' ').trim();
+  if (PLACEHOLDER.test(btext)) {
+    const m = btext.match(/^\[?\s*(?:screenshot|image|photo|figure|img)\s*:?\s*(.*?)(?:\s*caption:\s*(.*?))?\s*\]?$/i);
+    const alt = m && m[1] ? m[1].replace(/[.\s]+$/, '') : '';
+    const caption = m && m[2] ? m[2].replace(/\]$/, '').trim() : '';
+    return { place: 'replace', anchor: { selector: cssPath(block), text: btext.slice(0, 90) }, alt, caption: caption || humanName(file.name) || 'Add a caption' };
+  }
+  return { place: 'after', anchor: { selector: cssPath(block), text: btext.slice(0, 90) }, alt: '', caption: humanName(file.name) || 'Add a caption' };
+}
+function resolveAnchor(anchor) {
+  let el = null;
+  try { el = doc.querySelector(anchor.selector); } catch (e) {}
+  if (!el) return null;
+  const text = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+  return text === anchor.text ? el : null;
+}
+function buildFigure(rec) {
+  const fig = doc.createElement('figure');
+  fig.setAttribute('data-rv-image', rec.id);
+  const img = doc.createElement('img');
+  img.src = rec.dataUrl; img.alt = rec.alt || ''; img.width = Math.round(rec.w / (rec.dpr || 1)); img.height = Math.round(rec.h / (rec.dpr || 1));
+  img.style.maxWidth = '100%'; img.style.height = 'auto';
+  const cap = doc.createElement('figcaption');
+  cap.setAttribute('data-rv-caption', rec.id); cap.textContent = rec.caption || '';
+  fig.append(img, cap);
+  return fig;
+}
+// Put a record into the page. Returns false when its anchor is no longer there.
+function mountImage(rec) {
+  const el = resolveAnchor(rec.anchor);
+  if (!el) return false;
+  if (rec.place === 'image') {
+    if (!el.dataset.rvOrigSrc) el.dataset.rvOrigSrc = el.getAttribute('src') || '';
+    el.src = rec.dataUrl; el.setAttribute('data-rv-image', rec.id);
+    return true;
+  }
+  const fig = buildFigure(rec);
+  if (rec.place === 'replace') { el.setAttribute('data-rv-hidden', rec.id); el.style.display = 'none'; }
+  el.insertAdjacentElement('afterend', fig);
+  return true;
+}
+function unmountImage(rec) {
+  const fig = doc.querySelector('figure[data-rv-image="' + rec.id + '"]'); if (fig) fig.remove();
+  const hid = doc.querySelector('[data-rv-hidden="' + rec.id + '"]'); if (hid) { hid.style.display = ''; hid.removeAttribute('data-rv-hidden'); }
+  const img = doc.querySelector('img[data-rv-image="' + rec.id + '"]'); if (img) { img.src = img.dataset.rvOrigSrc || ''; img.removeAttribute('data-rv-image'); }
+}
+// A placed image the user deleted from the page (select it in edit mode, Backspace) is gone for good.
+function pruneImages() {
+  const before = images.length;
+  images = images.filter((r) => doc && doc.querySelector((r.place === 'image' ? 'img' : 'figure') + '[data-rv-image="' + r.id + '"]'));
+  if (images.length !== before) void saveImages();
+}
+async function removeImage(id) {
+  const rec = images.find((r) => r.id === id); if (!rec) return false;
+  unmountImage(rec); images = images.filter((r) => r !== rec); await saveImages(); updateCount(); return true;
+}
+function captionOf(rec) {
+  if (rec.place === 'image') { const el = doc.querySelector('img[data-rv-image="' + rec.id + '"]'); const cap = el && el.closest('figure') && el.closest('figure').querySelector('figcaption'); return cap ? cap.textContent.trim() : rec.caption; }
+  const cap = doc.querySelector('[data-rv-caption="' + rec.id + '"]');
+  const text = cap ? cap.textContent.trim() : rec.caption;
+  return text === 'Add a caption' ? '' : text;
+}
+async function placeFile(file, el) {
+  let data;
+  try { data = await readFile(file); } catch (err) { toast(err.message); return null; }
+  const plan = planFor(el, file);
+  const rec = { id: 'img-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: file.name || 'image.png', type: file.type, dataUrl: data.dataUrl, w: data.w, h: data.h, dpr: window.devicePixelRatio || 1, ...plan };
+  if (!mountImage(rec)) { toast('Could not place that here'); return null; }
+  images.push(rec);
+  await saveImages();
+  updateCount();
+  return rec;
+}
+async function dropFiles(files, px, py, at) {
+  let el = at || null;
+  if (!el) { const a = anchorFor(px, py); if (a) { try { el = doc.querySelector(a.selector); } catch (e) {} } }
+  if (!el) el = doc.elementFromPoint(px - win.scrollX, py - win.scrollY) || doc.body;
+  let rec = null;
+  for (const f of imageFiles({ files })) { const r = await placeFile(f, el); if (r) { rec = r; el = doc.querySelector('figure[data-rv-image="' + r.id + '"] figcaption') || el; } }
+  if (rec) toast(rec.place === 'image' ? 'Replaced the image. Press ` to edit its caption.' : 'Placed. Press ` to edit the caption.');
+}
+function visiblePlaceholder() {
+  const top = win.scrollY, bottom = top + win.innerHeight;
+  for (const el of doc.querySelectorAll('[data-rv]')) {
+    if (!PLACEHOLDER.test(el.textContent || '') || el.closest('[data-rv-hidden]') || el.hasAttribute('data-rv-hidden')) continue;
+    const r = el.getBoundingClientRect(); const y = r.top + top;
+    if (y >= top && y <= bottom) return el;
+  }
+  return null;
+}
+async function pasteFiles(files) {
+  let el = null;
+  const sel = doc.getSelection && doc.getSelection();
+  if (body.dataset.mode === 'edit' && sel && sel.anchorNode && doc.body.contains(sel.anchorNode)) el = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
+  if (!el) el = visiblePlaceholder();
+  if (!el) { toast('Click into the text where it goes (press ` first), then paste'); return; }
+  await dropFiles(files, 0, 0, el);
+}
+async function restoreImages() {
+  let stored = [];
+  try { stored = await idb.get(storeKey); } catch (e) {}
+  const kept = [];
+  let dropped = 0;
+  for (const rec of stored) { if (mountImage(rec)) kept.push(rec); else dropped++; }
+  images = kept;
+  if (dropped) { await saveImages(); setTimeout(() => toast(dropped + (dropped === 1 ? ' image' : ' images') + ' already in the source, dropped'), 300); }
+  updateCount();
+}
+// Drops and pastes on the review page itself (draw mode, where the canvas is on top). Capture phase, so tldraw
+// never sees them and does not make its own image shape.
+window.addEventListener('dragover', (e) => { if (hasImageFiles(e.dataTransfer)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+window.addEventListener('drop', (e) => {
+  if (!hasImageFiles(e.dataTransfer) || !doc) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const r = iframe.getBoundingClientRect();
+  void dropFiles(e.dataTransfer.files, e.clientX - r.left + win.scrollX, e.clientY - r.top + win.scrollY);
+}, true);
+window.addEventListener('paste', (e) => {
+  const files = imageFiles(e.clipboardData);
+  if (!files.length || !doc) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  void pasteFiles(files);
+}, true);
+
 // ---------- tldraw ----------
 function shapeText(shape) {
   const p = shape.props || {};
@@ -190,7 +370,8 @@ function syncCamera() {
   editor.setCamera({ x: -win.scrollX, y: -win.scrollY, z: 1 }, { force: true, immediate: true });
 }
 function updateCount() {
-  const n = (editor ? editor.getCurrentPageShapeIds().size : 0) + edits().length + (tldrText.value.trim() ? 1 : 0);
+  if (doc) pruneImages();
+  const n = (editor ? editor.getCurrentPageShapeIds().size : 0) + edits().length + images.length + (tldrText.value.trim() ? 1 : 0);
   $('#count').textContent = n;
 }
 
@@ -243,11 +424,26 @@ function markdown() {
     });
     L.push('');
   }
-  if (!d.tldr && !d.edits.length && !d.marks.length) L.push('_No notes yet._');
+  if (d.images.length) {
+    L.push('## Images (' + d.images.length + ')', '');
+    d.images.forEach((im, i) => {
+      const verb = im.place === 'image' ? 'replacing the image' : im.place === 'replace' ? 'replacing the placeholder' : 'after';
+      L.push((i + 1) + '. `' + im.name + '` (' + im.w + '×' + im.h + (im.dpr > 1 ? ', ' + im.dpr + 'x screen' : '') + ') ' + verb + ' `' + im.anchor.selector + '` ("' + im.anchor.text.slice(0, 60) + '")');
+      L.push('   - file: {{' + im.id + '}}');
+      if (im.caption) L.push('   - caption: ' + im.caption);
+      if (im.alt) L.push('   - alt: ' + im.alt);
+    });
+    L.push('');
+  }
+  if (!d.tldr && !d.edits.length && !d.marks.length && !d.images.length) L.push('_No notes yet._');
   return L.join('\n');
 }
+function imageRecords() {
+  pruneImages();
+  return images.map((r) => ({ id: r.id, name: r.name, type: r.type, w: r.w, h: r.h, dpr: r.dpr, alt: r.alt, caption: captionOf(r), anchor: r.anchor, place: r.place }));
+}
 function get() {
-  return { url: targetUrl, mode: body.dataset.mode, tldr: tldrText.value.trim(), edits: edits(), marks: marks(), scrollY: win ? win.scrollY : 0 };
+  return { url: targetUrl, mode: body.dataset.mode, tldr: tldrText.value.trim(), edits: edits(), marks: marks(), images: imageRecords(), scrollY: win ? win.scrollY : 0 };
 }
 async function png() {
   if (!editor) return null;
@@ -258,6 +454,8 @@ async function png() {
 async function clearAll() {
   if (editor) editor.deleteShapes(Array.from(editor.getCurrentPageShapeIds()));
   savedEdits = {}; tldrText.value = '';
+  images.forEach(unmountImage); images = [];
+  try { await idb.set(storeKey, []); } catch (e) {}
   try { localStorage.removeItem(storeKey + ':edits'); localStorage.removeItem(storeKey + ':tldr'); } catch (e) {}
   iframe.contentWindow.location.reload();
   toast('Cleared');
@@ -274,11 +472,11 @@ let sending = false;
 async function send() {
   if (sending) return;
   const d = get();
-  if (!d.tldr && !d.edits.length && !d.marks.length) { toast('Nothing to send yet'); return; }
+  if (!d.tldr && !d.edits.length && !d.marks.length && !d.images.length) { toast('Nothing to send yet'); return; }
   sending = true; const btn = $('#sendBtn'); btn.disabled = true; btn.firstChild.textContent = 'Sending';
   try {
     const image = await png();
-    const res = await fetch(SEND_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: targetUrl, markdown: markdown(), json: d, png: image }) });
+    const res = await fetch(SEND_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: targetUrl, markdown: markdown(), json: d, png: image, images: images.map((r) => ({ id: r.id, name: r.name, type: r.type, dataUrl: r.dataUrl })) }) });
     if (!res.ok) throw new Error(res.status);
     const j = await res.json();
     toast('Sent to Claude: ' + (j.path || '').split('/').pop());
@@ -291,5 +489,5 @@ async function send() {
 }
 $('#sendBtn').addEventListener('click', send);
 
-window.__review = { get, markdown, png, send, clear: clearAll, setMode, scrollTo: (y) => win && win.scrollTo({ top: y, behavior: 'instant' }), get editor() { return editor; }, toRichText };
+window.__review = { get, markdown, png, send, clear: clearAll, setMode, placeFile, removeImage, images: () => images, scrollTo: (y) => win && win.scrollTo({ top: y, behavior: 'instant' }), get editor() { return editor; }, toRichText };
 try { const m = localStorage.getItem(storeKey + ':mode'); if (m) setMode(m); } catch (e) {}

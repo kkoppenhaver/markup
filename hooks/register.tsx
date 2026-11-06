@@ -32,6 +32,7 @@ function field(text: string, name: string): string {
 
 type Edit = { selector?: string; before?: string; after?: string }
 type Mark = { kind?: string; text?: string; anchor?: { selector?: string; text?: string } | null }
+type Placed = { name?: string; place?: string; anchor?: { selector?: string; text?: string }; caption?: string }
 
 const LABELS: Record<string, string> = { h1: 'title', h2: 'heading', h3: 'heading', h4: 'heading', p: 'paragraph', li: 'list item', figcaption: 'caption', a: 'link', blockquote: 'quote', button: 'button', td: 'cell', th: 'cell' }
 
@@ -46,7 +47,7 @@ function labelFor(selector: string): string {
 }
 
 // One or two sentences for the pane: what was retyped, then what was drawn. Deterministic, built from the json.
-export function summarize(edits: Edit[], marks: Mark[]): string {
+export function summarize(edits: Edit[], marks: Mark[], images: Placed[] = []): string {
   const parts: string[] = []
   const retyped = edits.filter(e => (e.after ?? '').trim())
   const cut = edits.filter(e => !(e.after ?? '').trim())
@@ -69,6 +70,14 @@ export function summarize(edits: Edit[], marks: Mark[]): string {
     const tail = said.length ? ` saying ${said.join(', ')}` : where.length ? ` on ${Array.from(new Set(where)).join(' and ')}` : ''
     parts.push(`Drew ${kinds.join(', ')}${tail}.`)
   }
+  if (images.length) {
+    const shown = images.slice(0, 2).map(im => {
+      const what = im.place === 'image' ? 'over the image' : im.place === 'replace' ? 'on the placeholder' : `after the ${labelFor(im.anchor?.selector ?? '')}`
+      return `${im.name ?? 'image'} ${what}${im.anchor?.text ? ` "${snip(im.anchor.text, 4)}"` : ''}`
+    })
+    const more = images.length - shown.length
+    parts.push(`Placed ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}.`)
+  }
   return parts.join(' ')
 }
 
@@ -77,16 +86,18 @@ async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> 
   const text = await $.fs.read(path)
   let edits = 0
   let marks = 0
+  let images = 0
   let tldr = ''
   let summary = ''
   const jsonName = field(text, 'json')
   if (jsonName && (await $.fs.exists(`${inbox}/${jsonName}`))) {
     try {
-      const data = JSON.parse(await $.fs.read(`${inbox}/${jsonName}`)) as { edits?: Edit[]; marks?: Mark[]; tldr?: string }
+      const data = JSON.parse(await $.fs.read(`${inbox}/${jsonName}`)) as { edits?: Edit[]; marks?: Mark[]; images?: Placed[]; tldr?: string }
       edits = (data.edits ?? []).length
       marks = (data.marks ?? []).length
+      images = (data.images ?? []).length
       tldr = String(data.tldr ?? '').trim()
-      summary = summarize(data.edits ?? [], data.marks ?? [])
+      summary = summarize(data.edits ?? [], data.marks ?? [], data.images ?? [])
     } catch {
       // a half-written json file: counts stay at zero, the markdown still carries everything
     }
@@ -100,6 +111,7 @@ async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> 
     sentAt: field(text, 'sent'),
     edits,
     marks,
+    images,
     tldr,
     summary,
     status: 'new',
@@ -130,8 +142,9 @@ function promptFor(arrived: NoteFile[]): string {
     lines.push('', n.text.trim())
     return lines.join('\n')
   })
+  const withImages = arrived.some(n => n.images > 0)
   return [
-    `Review notes arrived from the markup-review page. The user sent them from the browser with Cmd+Enter. Apply them now, following the markup-review skill: read the TL;DR first, apply each copy edit to the source exactly as written (~~text~~ means delete that text), act on each mark using its anchor, reply with one line per note in the order given, and do not delete inbox files or clear the canvas.`,
+    `Review notes arrived from the markup-review page. The user sent them from the browser with Cmd+Enter. Apply them now, following the markup-review skill: read the TL;DR first, apply each copy edit to the source exactly as written (~~text~~ means delete that text), act on each mark using its anchor,${withImages ? ' place each image (move the file out of the inbox into the project\'s media folder, resize to the site\'s convention, and put a figure with the given caption and alt where the notes say),' : ''} reply with one line per note in the order given, and do not delete inbox files or clear the canvas.`,
     '',
     ...parts,
   ].join('\n')
@@ -271,7 +284,7 @@ async function poll($: Eng, cwd: string, watch: Watch) {
     await update($, notes, list => [...arrived, ...list].slice(0, 50))
     await markDelivered($, cwd, fresh)
     const summary = arrived
-      .map(a => `${a.edits} edit${a.edits === 1 ? '' : 's'}, ${a.marks} mark${a.marks === 1 ? '' : 's'}${a.tldr ? `, "${a.tldr.slice(0, 70)}${a.tldr.length > 70 ? '…' : ''}"` : ''}`)
+      .map(a => `${a.edits} edit${a.edits === 1 ? '' : 's'}, ${a.marks} mark${a.marks === 1 ? '' : 's'}${a.images ? `, ${a.images} image${a.images === 1 ? '' : 's'}` : ''}${a.tldr ? `, "${a.tldr.slice(0, 70)}${a.tldr.length > 70 ? '…' : ''}"` : ''}`)
       .join('; ')
     $.ui.toast(`Review notes: ${summary}`)
     $.ui.status(`review: applying ${arrived.length} note file${arrived.length === 1 ? '' : 's'}`)
@@ -361,7 +374,7 @@ export const register: Register = on => {
     const list = await read($, notes)
     const inbox = inboxOf(await $.session.cwd())
     if (list.length === 0) return { result: `No review notes yet. Inbox: ${inbox}` }
-    const lines = list.map(n => `${n.sentAt} ${n.page} [${n.status}] ${n.edits} edits, ${n.marks} marks${n.tldr ? ` TL;DR: ${n.tldr}` : ''}${n.summary ? `\n  ${n.summary}` : ''}\n  file: ${n.path}${n.pngPath ? `\n  png: ${n.pngPath}` : ''}`)
+    const lines = list.map(n => `${n.sentAt} ${n.page} [${n.status}] ${n.edits} edits, ${n.marks} marks${n.images ? `, ${n.images} images` : ''}${n.tldr ? ` TL;DR: ${n.tldr}` : ''}${n.summary ? `\n  ${n.summary}` : ''}\n  file: ${n.path}${n.pngPath ? `\n  png: ${n.pngPath}` : ''}`)
     return { result: `Inbox: ${inbox}\n\n${lines.join('\n')}` }
   })
 
@@ -404,7 +417,7 @@ export const register: Register = on => {
               {n.sentAt.slice(11, 16) || '--:--'} {n.page}
             </Text>
             <Text dimColor>
-              {n.edits} edits, {n.marks} marks, {n.status}
+              {n.edits} edits, {n.marks} marks{n.images ? `, ${n.images} images` : ''}, {n.status}
             </Text>
             {n.tldr ? <Text italic wrap="truncate">{n.tldr}</Text> : null}
             {n.summary ? <Text dimColor wrap="wrap">{n.summary}</Text> : null}

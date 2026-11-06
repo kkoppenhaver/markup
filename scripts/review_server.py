@@ -125,13 +125,31 @@ class Handler(SimpleHTTPRequestHandler):
             png_path = os.path.join(Handler.inbox, base + ".png")
             with open(png_path, "wb") as f:
                 f.write(base64.b64decode(png.split(",", 1)[1]))
+        # Screenshots placed on the page: one file each, beside the notes. The markdown and json refer to them by name.
+        markdown = payload.get("markdown") or ""
+        data = payload.get("json") or {}
+        files = {}
+        for n, im in enumerate(payload.get("images") or [], 1):
+            m = re.match(r"data:image/(png|jpe?g|gif|webp);base64,(.*)$", im.get("dataUrl") or "", re.S)
+            if not m or not im.get("id"):
+                continue
+            ext = {"jpeg": "jpg"}.get(m.group(1), m.group(1))
+            name = "%s-img-%d.%s" % (base, n, ext)
+            with open(os.path.join(Handler.inbox, name), "wb") as f:
+                f.write(base64.b64decode(m.group(2)))
+            files[im["id"]] = name
+        for rec in data.get("images") or []:
+            if rec.get("id") in files:
+                rec["file"] = os.path.join(Handler.inbox, files[rec["id"]])
+        for iid, name in files.items():
+            markdown = markdown.replace("{{%s}}" % iid, os.path.join(Handler.inbox, name))
         with open(json_path, "w") as f:
-            json.dump(payload.get("json") or {}, f, indent=2)
+            json.dump(data, f, indent=2)
         header = ["<!-- markup-review notes -->", "page: " + page, "sent: " + dt.datetime.now().isoformat(timespec="seconds"), "json: " + os.path.basename(json_path)]
         if png_path:
             header.append("marks_png: " + os.path.basename(png_path) + "  (the marks alone, transparent; view it with Read)")
         with open(md_path, "w") as f:
-            f.write("\n".join(header) + "\n\n" + (payload.get("markdown") or "").strip() + "\n")
+            f.write("\n".join(header) + "\n\n" + markdown.strip() + "\n")
         sys.stderr.write("notes -> %s\n" % md_path)
         self.send_json({"ok": True, "path": md_path})
 

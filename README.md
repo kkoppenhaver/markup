@@ -46,11 +46,13 @@ The review page has three modes:
 - **Edit copy** (Ctrl+2, or the backtick key) lets you click into any text and retype it. Cmd+Shift+X strikes words out.
 - **Browse** (Ctrl+3) makes the page behave normally again.
 
+Screenshots go straight into the page. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Drop it on a `[Screenshot: ...]` placeholder line to replace the line, or on an existing image to replace that image.
+
 For the big-picture verdict, Ctrl+/ opens the **TL;DR** box.
 
 ## Send it with Cmd+Enter
 
-When you're done, press **Cmd+Enter**. The notes land in `.review/inbox/` in your project as a markdown file, a JSON file, and a PNG of the strokes.
+When you're done, press **Cmd+Enter**. The notes land in `.review/inbox/` in your project as a markdown file, a JSON file, a PNG of the strokes, and one file per screenshot you placed.
 
 The mod sees the file within a second, shows a toast, and starts a Claude turn with the notes, so pressing Cmd+Enter in the browser is the same as typing a message. The Review pane lists each round and marks it applied when the turn ends.
 
@@ -71,6 +73,10 @@ Too much copy above the fold. Cut the second paragraph.
 ## Marks on the page (2, top to bottom)
 1. arrow on `h1` ("Pricing that scales")
 2. note: "make this the headline" on `h2:nth-of-type(1)` ("Simple, honest plans")
+## Images (1)
+1. `kit.png` (2880×1640, 2x screen) replacing the placeholder `main > p:nth-of-type(6)` ("[Screenshot: the album kit…")
+   - file: /project/.review/inbox/20261106-013000-pricing-img-1.png
+   - caption: The Midway kit. Twenty-one titles, each with its own prompt.
 ```
 
 It also reads the PNG, since the strokes show things the text can't (like what you circled).
