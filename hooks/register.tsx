@@ -119,14 +119,19 @@ async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> 
   }
 }
 
+async function readDelivered($: Eng, cwd: string): Promise<string[]> {
+  const statePath = `${cwd}/.review/.delivered.json`
+  try {
+    if (await $.fs.exists(statePath)) return JSON.parse(await $.fs.read(statePath)) as string[]
+  } catch {
+    // unreadable state: treat as empty
+  }
+  return []
+}
+
 async function markDelivered($: Eng, cwd: string, names: string[]) {
   const statePath = `${cwd}/.review/.delivered.json`
-  let delivered: string[] = []
-  try {
-    if (await $.fs.exists(statePath)) delivered = JSON.parse(await $.fs.read(statePath)) as string[]
-  } catch {
-    delivered = []
-  }
+  const delivered = await readDelivered($, cwd)
   const merged = Array.from(new Set([...delivered, ...names])).sort()
   try {
     await $.fs.write(statePath, JSON.stringify(merged))
@@ -273,8 +278,21 @@ async function poll($: Eng, cwd: string, watch: Watch) {
   watch.polling = true
   try {
     const inbox = inboxOf(cwd)
-    const fresh = (await listNoteFiles($, inbox)).filter(n => !watch.seen.has(n))
+    const unseen = (await listNoteFiles($, inbox)).filter(n => !watch.seen.has(n))
+    if (unseen.length === 0) return
+    // Several sessions can watch one project. The first to write a note's name into .delivered.json owns it;
+    // the others list it in their pane as applied elsewhere and do not start a turn for it.
+    const taken = new Set(await readDelivered($, cwd))
+    const fresh = unseen.filter(n => !taken.has(n))
+    const elsewhere = unseen.filter(n => taken.has(n))
+    for (const name of elsewhere) watch.seen.add(name)
+    if (elsewhere.length) {
+      const seenElsewhere: NoteFile[] = []
+      for (const name of elsewhere) seenElsewhere.push({ ...(await readNote($, inbox, name)), status: 'applied' as const })
+      await update($, notes, list => [...seenElsewhere, ...list].slice(0, 50))
+    }
     if (fresh.length === 0) return
+    await markDelivered($, cwd, fresh)
     await $.clock.sleep(400) // let the server finish writing the json and png beside the markdown
     const arrived: NoteFile[] = []
     for (const name of fresh) {
@@ -282,7 +300,6 @@ async function poll($: Eng, cwd: string, watch: Watch) {
       arrived.push({ ...(await readNote($, inbox, name)), status: 'applying' as const })
     }
     await update($, notes, list => [...arrived, ...list].slice(0, 50))
-    await markDelivered($, cwd, fresh)
     const summary = arrived
       .map(a => `${a.edits} edit${a.edits === 1 ? '' : 's'}, ${a.marks} mark${a.marks === 1 ? '' : 's'}${a.images ? `, ${a.images} image${a.images === 1 ? '' : 's'}` : ''}${a.tldr ? `, "${a.tldr.slice(0, 70)}${a.tldr.length > 70 ? '…' : ''}"` : ''}`)
       .join('; ')
