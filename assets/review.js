@@ -135,6 +135,7 @@ function onPageLoad() {
   doc = iframe.contentDocument; win = iframe.contentWindow;
   const lift = doc.createElement('style'); lift.textContent = '.switcher{bottom:74px !important} html{scroll-behavior:auto !important}'; doc.head.appendChild(lift);
   indexPage();
+  markDropZones();
   doc.addEventListener('input', () => {
     const changed = {};
     doc.querySelectorAll('[data-rv]').forEach((el) => { const id = el.getAttribute('data-rv'); if (originals[id] && readText(el) !== originals[id].text) changed[id] = { html: el.innerHTML, before: originals[id].text }; });
@@ -148,8 +149,9 @@ function onPageLoad() {
   });
   doc.addEventListener('keydown', onKey, true);
   // Drops and pastes that land in the frame itself (edit and browse modes, where the canvas lets pointer events through).
-  doc.addEventListener('dragover', (e) => { if (hasImageFiles(e.dataTransfer)) e.preventDefault(); }, true);
-  doc.addEventListener('drop', (e) => { if (!hasImageFiles(e.dataTransfer)) return; e.preventDefault(); e.stopImmediatePropagation(); void dropFiles(e.dataTransfer.files, e.clientX + win.scrollX, e.clientY + win.scrollY); }, true);
+  doc.addEventListener('dragover', (e) => { if (hasImageFiles(e.dataTransfer)) { e.preventDefault(); dragging(true, e.clientX + win.scrollX, e.clientY + win.scrollY); } }, true);
+  doc.addEventListener('dragleave', (e) => { if (!e.relatedTarget) dragging(false); }, true);
+  doc.addEventListener('drop', (e) => { dragging(false); if (!hasImageFiles(e.dataTransfer)) return; e.preventDefault(); e.stopImmediatePropagation(); void dropFiles(e.dataTransfer.files, e.clientX + win.scrollX, e.clientY + win.scrollY); }, true);
   doc.addEventListener('paste', (e) => { const files = imageFiles(e.clipboardData); if (!files.length) return; e.preventDefault(); e.stopImmediatePropagation(); void pasteFiles(files); }, true);
   void restoreImages();
   win.addEventListener('scroll', syncCamera, { passive: true });
@@ -198,6 +200,38 @@ function anchorFor(px, py) {
 // A dropped or pasted image goes into the page itself, as a figure with a caption, at the element under the
 // pointer. Text flows around it the way it will on the site, and the caption is edited like any other copy.
 const PLACEHOLDER = /\[(screenshot|image|photo|figure|img)\b/i;
+const ZONE_CSS = `
+[data-rv-dropzone]{position:relative;border:2px dashed #b9b9c2;border-radius:10px;padding:.75em 1em 2.1em;background:#fafafc;transition:border-color .15s,background .15s}
+[data-rv-dropzone]::after{content:'Drop a screenshot here, or paste';position:absolute;left:1em;bottom:.6em;font:600 12px/1 system-ui,-apple-system,sans-serif;letter-spacing:.02em;color:#8a8a96;text-transform:none}
+body.rv-dragging [data-rv-dropzone]{border-color:#e6b500;background:#fff7d6}
+body.rv-dragging [data-rv-dropzone]::after{content:'Drop here';color:#8a6a00}
+body.rv-dragging [data-rv-dropzone].rv-over{border-style:solid;border-color:#d99e00;background:#ffe9a3;box-shadow:0 0 0 4px rgba(255,213,74,.35)}
+`;
+// Placeholder lines ([Screenshot: ...], [Image: ...]) are shown as drop targets so nobody has to guess.
+function markDropZones() {
+  if (!doc.getElementById('rv-zone-css')) { const st = doc.createElement('style'); st.id = 'rv-zone-css'; st.textContent = ZONE_CSS; doc.head.appendChild(st); }
+  doc.querySelectorAll('[data-rv]').forEach((el) => {
+    if (!PLACEHOLDER.test((el.textContent || '').trim().slice(0, 40))) return;
+    const block = blockOf(el);
+    if (!block.closest('figure') && !block.hasAttribute('data-rv-hidden')) block.setAttribute('data-rv-dropzone', '');
+  });
+}
+let dragRaf = 0;
+// Light up the zones while an image is being dragged; brightest on the one under the pointer.
+function dragging(on, px, py) {
+  if (!doc) return;
+  doc.body.classList.toggle('rv-dragging', !!on);
+  if (!on) { doc.querySelectorAll('.rv-over').forEach((z) => z.classList.remove('rv-over')); return; }
+  if (dragRaf) return;
+  dragRaf = requestAnimationFrame(() => {
+    dragRaf = 0;
+    const a = anchorFor(px, py);
+    let el = null; if (a) { try { el = doc.querySelector(a.selector); } catch (e) {} }
+    const zone = el ? blockOf(el).closest('[data-rv-dropzone]') : null;
+    doc.querySelectorAll('.rv-over').forEach((z) => { if (z !== zone) z.classList.remove('rv-over'); });
+    if (zone) zone.classList.add('rv-over');
+  });
+}
 function imageFiles(dt) { return dt ? Array.from(dt.files || []).filter((f) => /^image\//.test(f.type)) : []; }
 function hasImageFiles(dt) { return !!dt && Array.from(dt.items || []).some((i) => i.kind === 'file' && /^image\//.test(i.type)); }
 function readFile(file) {
@@ -260,13 +294,13 @@ function mountImage(rec) {
     return true;
   }
   const fig = buildFigure(rec);
-  if (rec.place === 'replace') { el.setAttribute('data-rv-hidden', rec.id); el.style.display = 'none'; }
+  if (rec.place === 'replace') { el.setAttribute('data-rv-hidden', rec.id); el.removeAttribute('data-rv-dropzone'); el.style.display = 'none'; }
   el.insertAdjacentElement('afterend', fig);
   return true;
 }
 function unmountImage(rec) {
   const fig = doc.querySelector('figure[data-rv-image="' + rec.id + '"]'); if (fig) fig.remove();
-  const hid = doc.querySelector('[data-rv-hidden="' + rec.id + '"]'); if (hid) { hid.style.display = ''; hid.removeAttribute('data-rv-hidden'); }
+  const hid = doc.querySelector('[data-rv-hidden="' + rec.id + '"]'); if (hid) { hid.style.display = ''; hid.removeAttribute('data-rv-hidden'); hid.setAttribute('data-rv-dropzone', ''); }
   const img = doc.querySelector('img[data-rv-image="' + rec.id + '"]'); if (img) { img.src = img.dataset.rvOrigSrc || ''; img.removeAttribute('data-rv-image'); }
 }
 // A placed image the user deleted from the page (select it in edit mode, Backspace) is gone for good.
@@ -333,8 +367,15 @@ async function restoreImages() {
 }
 // Drops and pastes on the review page itself (draw mode, where the canvas is on top). Capture phase, so tldraw
 // never sees them and does not make its own image shape.
-window.addEventListener('dragover', (e) => { if (hasImageFiles(e.dataTransfer)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+window.addEventListener('dragover', (e) => {
+  if (!hasImageFiles(e.dataTransfer)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (doc) { const r = iframe.getBoundingClientRect(); dragging(true, e.clientX - r.left + win.scrollX, e.clientY - r.top + win.scrollY); }
+}, true);
+window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) dragging(false); }, true);
+window.addEventListener('dragend', () => dragging(false), true);
 window.addEventListener('drop', (e) => {
+  dragging(false);
   if (!hasImageFiles(e.dataTransfer) || !doc) return;
   e.preventDefault(); e.stopImmediatePropagation();
   const r = iframe.getBoundingClientRect();

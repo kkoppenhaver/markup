@@ -46,7 +46,7 @@ The review page has three modes:
 - **Edit copy** (Ctrl+2, or the backtick key) lets you click into any text and retype it. Cmd+Shift+X strikes words out.
 - **Browse** (Ctrl+3) makes the page behave normally again.
 
-Screenshots go straight into the page. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Drop it on a `[Screenshot: ...]` placeholder line to replace the line, or on an existing image to replace that image.
+Screenshots go straight into the page. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Any `[Screenshot: ...]` placeholder line on the page shows up as a dashed drop zone that lights up while you drag; drop there to replace the line, or drop on an existing image to replace that image.
 
 For the big-picture verdict, Ctrl+/ opens the **TL;DR** box.
 
