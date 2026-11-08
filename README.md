@@ -42,6 +42,17 @@ The page under review stays current. With a dev server behind the proxy, its hot
 
 ## Mark it up like a printout
 
+What you can do on the page, in one list:
+
+- **Draw** on it: pen, arrows, circles, rectangles, sticky notes, text. Each mark arrives with the element it points at.
+- **Retype the copy** in place, and strike words out with Cmd+Shift+X. Claude gets before and after, keyed to the element.
+- **Delete** a heading or paragraph outright. It arrives as a deletion, not a mystery.
+- **Drop or paste screenshots** where they belong. They show up as figures with an editable caption, so you see the text flow around them.
+- **Fill, remove or add screenshot slots.** `[Screenshot: ...]` lines are drop zones, each with a × to remove it, and **+ Image** adds a new slot wherever you click.
+- **Write a TL;DR**, the one note that is about the whole page rather than a spot on it. Claude reads it first.
+- **Send with Cmd+Enter.** Everything lands as a prompt in Claude Code, and the Review pane beside the chat lists each round with a one-line summary of what changed.
+- **Keep going across reloads.** Marks, edits, slots and screenshots persist per page, the frame reloads itself when the source changes, and edits Claude has already applied are dropped rather than painted onto the wrong line.
+
 The review page has three modes:
 
 - **Draw** (Ctrl+1) gives you the tldraw tools: D pen, A arrow, N sticky note, T text, R rectangle, E eraser, and V select.
@@ -50,7 +61,7 @@ The review page has three modes:
 
 Screenshots go straight into the page. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Any `[Screenshot: ...]` placeholder line on the page shows up as a dashed drop zone that lights up while you drag; drop there to replace the line, or drop on an existing image to replace that image. Each zone has a × to remove it. **+ Image** then a click adds a new slot wherever you point, and opens the file picker; cancel it and the empty slot stays for later.
 
-For the big-picture verdict, Ctrl+/ opens the **TL;DR** box.
+For the big-picture verdict, Ctrl+/ opens the **TL;DR** box in the bottom corner. It's the place for "too much copy above the fold" or "this section is done, cut the struck sentence": a note about the page, not a spot on it. It goes at the top of what Claude receives, and the skill tells Claude to read it before touching anything.
 
 ## Send it with Cmd+Enter
 
