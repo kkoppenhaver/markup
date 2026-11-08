@@ -1,0 +1,30 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Markup plugin icon. A page on a dark drawing canvas: an orange circle and strike (drawn marks) and a teal
+       suggestion with an I-beam caret (a retyped line). Export: docs/icon/export.sh -> .claude-plugin/icon.png -->
+  <defs>
+    <radialGradient id="slate" cx=".3" cy=".2" r="1.1"><stop offset="0" stop-color="#2f3b4a"/><stop offset="1" stop-color="#121820"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#slate)"/>
+  <g stroke="#fff" stroke-opacity=".05" stroke-width="2"><path d="M0 128H512M0 256H512M0 384H512M128 0V512M256 0V512M384 0V512"/></g>
+  <rect x="108" y="80" width="296" height="400" rx="16" fill="#000" fill-opacity=".4" transform="translate(10 16)"/>
+  <rect x="108" y="80" width="296" height="400" rx="16" fill="#f7f3ea"/>
+  <g stroke="#b5ad9e" stroke-width="12" stroke-linecap="round">
+    <line x1="148" y1="146" x2="300" y2="146" stroke="#2b2924" stroke-width="18"/>
+    <line x1="148" y1="206" x2="366" y2="206"/>
+    <line x1="148" y1="294" x2="366" y2="294"/>
+    <line x1="148" y1="338" x2="300" y2="338"/>
+    <line x1="148" y1="406" x2="366" y2="406"/>
+  </g>
+  <!-- suggestion: band, retyped run, small I-beam -->
+  <rect x="134" y="228" width="162" height="44" rx="10" fill="#2bb5a2" fill-opacity=".22"/>
+  <line x1="148" y1="250" x2="254" y2="250" stroke="#2bb5a2" stroke-width="12" stroke-linecap="round"/>
+  <g stroke="#2bb5a2" stroke-width="8" stroke-linecap="round" fill="none">
+    <line x1="274" y1="231" x2="274" y2="269"/>
+    <path d="M266 231 L282 231 M266 269 L282 269"/>
+  </g>
+  <!-- drawn marks -->
+  <g fill="none" stroke="#ff6a3d" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M124 148 C122 104, 200 98, 258 102 C334 106, 356 130, 344 160 C332 192, 236 196, 178 186 C132 178, 114 164, 132 146"/>
+    <path d="M130 340 C192 328, 262 350, 390 336"/>
+  </g>
+</svg>
