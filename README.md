@@ -124,6 +124,7 @@ The mod is what makes it feel seamless. It owns the server process for the sessi
 - tldraw shows a small "get a license" badge in local use, and a tldraw license removes it.
 - Copy edits map to a CSS selector. Turning that into the right component in your codebase is Claude's job, and it uses the selector plus the surrounding text to get there.
 - It's built for mouse and trackpad. Touch works, but it isn't designed for it.
+- There is no button for "drop this screenshot slot" or "add an image here". Today you delete a placeholder line in edit mode like any other text, and you add an image where there is no placeholder by dropping it on the paragraph it should follow. Both work, neither is discoverable. A small control on each placeholder and a way to insert an empty slot are on the list.
 
 ## Give it a try
 
