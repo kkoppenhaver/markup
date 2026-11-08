@@ -7,7 +7,7 @@
       "name": "markup-review",
       "source": "./",
       "description": "Scribble on a page, retype its copy, press Cmd+Enter, and Claude gets the notes.",
-      "version": "0.3.0"
+      "version": "0.4.0"
     }
   ]
 }

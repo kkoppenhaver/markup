@@ -38,6 +38,8 @@ Run `/markup` in Claude Code and it starts the bundled server, opens the review 
 
 Claude also gets two tools, `review_open` and `review_notes`, so saying "let me mark this up" works too.
 
+The page under review stays current. With a dev server behind the proxy, its hot reload channel passes through, so the frame updates the way the plain page would. With a folder, the server watches it and reloads the frame when a file changes, which is how you see Claude's edits land after you send a round. Your marks, retyped text and placed screenshots survive the reload.
+
 ## Mark it up like a printout
 
 The review page has three modes:
@@ -119,10 +121,9 @@ The mod is what makes it feel seamless. It owns the server process for the sessi
 
 ## Rough edges I know about
 
-- Hot reload websockets don't pass through the proxy. The page renders and the canvas works, but live reload inside the frame doesn't.
 - tldraw shows a small "get a license" badge in local use, and a tldraw license removes it.
 - Copy edits map to a CSS selector. Turning that into the right component in your codebase is Claude's job, and it uses the selector plus the surrounding text to get there.
-- It's built for mouse and trackpad first. Touch works, but there's no iPad mode yet.
+- It's built for mouse and trackpad. Touch works, but it isn't designed for it.
 
 ## Give it a try
 

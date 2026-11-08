@@ -17,8 +17,11 @@ import http.client
 import json
 import os
 import re
+import socket
 import socketserver
 import sys
+import threading
+import time
 import urllib.parse
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -33,17 +36,53 @@ def slug(s, n=40):
     return (s or "page")[:n]
 
 
+SKIP_DIRS = {"node_modules", ".git", ".review", "__pycache__"}
+
+
+class Watcher(threading.Thread):
+    """Rescans the static root once a second and remembers the newest mtime. The review page polls
+    /__review/changes and reloads the frame when the stamp moves, so an edit to the source shows up
+    without a manual refresh. Hidden folders, node_modules and .git are skipped."""
+
+    def __init__(self, root):
+        super().__init__(daemon=True)
+        self.root = root
+        self.stamp = self.scan()
+
+    def scan(self):
+        newest = 0.0
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+            for name in filenames:
+                try:
+                    m = os.stat(os.path.join(dirpath, name)).st_mtime
+                except OSError:
+                    continue
+                if m > newest:
+                    newest = m
+        return newest
+
+    def run(self):
+        while True:
+            time.sleep(1.0)
+            try:
+                self.stamp = self.scan()
+            except OSError:
+                pass
+
+
 class Handler(SimpleHTTPRequestHandler):
     root = os.getcwd()
     proxy = None
     inbox = None
     quiet = False
+    watcher = None
 
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=Handler.root, **kw)
 
     def log_message(self, fmt, *args):
-        if not Handler.quiet and not self.path.startswith("/__review/ping"):
+        if not Handler.quiet and not self.path.startswith(("/__review/ping", "/__review/changes")):
             sys.stderr.write("%s %s\n" % (self.command, self.path))
 
     # ---------- routing ----------
@@ -55,6 +94,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_file(os.path.join(ASSETS, "review.js"), "application/javascript; charset=utf-8")
         if p == "/__review/ping":
             return self.send_json({"ok": True, "inbox": Handler.inbox, "mode": "proxy" if Handler.proxy else "static"})
+        if p == "/__review/changes":
+            return self.send_json({"stamp": Handler.watcher.stamp if Handler.watcher else None})
         if p == "/__review/pending":
             return self.send_json({"files": sorted(f for f in os.listdir(Handler.inbox) if f.endswith(".md"))} if os.path.isdir(Handler.inbox) else {"files": []})
         if Handler.proxy:
@@ -155,6 +196,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def forward(self):
         target = urllib.parse.urlsplit(Handler.proxy)
+        if "upgrade" in (self.headers.get("Connection") or "").lower() and (self.headers.get("Upgrade") or "").lower() == "websocket":
+            return self.tunnel(target)
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
@@ -188,6 +231,53 @@ class Handler(SimpleHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(data)
 
+    def tunnel(self, target):
+        """A WebSocket upgrade (a dev server's hot-reload channel) is replayed to the dev server as raw bytes,
+        then both sockets are piped into each other until one side closes. Each connection has its own
+        thread, so blocking here is fine."""
+        self.close_connection = True
+        try:
+            upstream = socket.create_connection((target.hostname, target.port or (443 if target.scheme == "https" else 80)), timeout=10)
+            if target.scheme == "https":
+                import ssl
+                upstream = ssl.create_default_context().wrap_socket(upstream, server_hostname=target.hostname)
+        except OSError as e:
+            msg = ("Review server could not reach %s (%s). Is the dev server running?" % (Handler.proxy, e)).encode()
+            self.send_response(502)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(msg)))
+            self.end_headers()
+            self.wfile.write(msg)
+            return
+        lines = ["%s %s %s" % (self.command, self.path, self.request_version)]
+        for k, v in self.headers.items():
+            lines.append("%s: %s" % ("Host" if k.lower() == "host" else k, target.netloc if k.lower() == "host" else v))
+        upstream.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1"))
+        client = self.connection
+        upstream.settimeout(None)
+        client.settimeout(None)
+
+        def pipe(src, dst):
+            try:
+                while True:
+                    chunk = src.recv(65536)
+                    if not chunk:
+                        break
+                    dst.sendall(chunk)
+            except OSError:
+                pass
+            finally:
+                for s in (src, dst):
+                    try:
+                        s.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+
+        t = threading.Thread(target=pipe, args=(upstream, client), daemon=True)
+        t.start()
+        pipe(client, upstream)
+        t.join(timeout=5)
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -206,6 +296,9 @@ def main():
     Handler.inbox = os.path.abspath(args.inbox or os.path.join(os.getcwd(), ".review", "inbox"))
     Handler.quiet = args.quiet
     os.makedirs(Handler.inbox, exist_ok=True)
+    if not Handler.proxy:
+        Handler.watcher = Watcher(Handler.root)
+        Handler.watcher.start()
 
     socketserver.TCPServer.allow_reuse_address = True
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)

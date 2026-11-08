@@ -12,7 +12,7 @@ The user marks up a live page the way they would mark up a printout: arrows, cir
 Call the `review_open` tool (listed as `mcp__markup-review__review_open`). The user can also run `/markup`.
 
 - For static files, pass `root`: the project root by default, or a built folder such as `dist`.
-- For a running dev server (Vite, Next, Astro, Rails), pass `proxy`, such as `http://localhost:3000`. Find the port from the running process or the project config. The proxy strips frame-blocking headers so the page loads inside the review frame. Hot reload over websockets does not pass through; the page still works.
+- For a running dev server (Vite, Next, Astro, Rails), pass `proxy`, such as `http://localhost:3000`. Find the port from the running process or the project config. The proxy strips frame-blocking headers so the page loads inside the review frame, and passes the dev server's hot-reload websocket through. For a static root, the server watches the folder and the review page reloads the frame when a file changes, so applied notes show up on their own.
 - Pass `page` for a specific path, including a query string, such as `/pricing` or `/?theme=notebook`.
 
 The tool starts the bundled Python server from the project directory (notes land in `.review/inbox/` there), reuses a server that is already running for this project, opens the URL in the browser, and shows a Review pane. Add `.review/` to `.gitignore` if the project is a git repo and the line is missing.

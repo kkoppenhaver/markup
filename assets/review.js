@@ -43,6 +43,24 @@ async function saveImages() { try { await idb.set(storeKey, images); } catch (e)
 $('#urlLabel').textContent = targetUrl;
 iframe.src = targetUrl;
 
+// Static folders: the server rescans the root every second and reports the newest mtime. When it moves (Claude
+// applied the notes, or the source was edited by hand), reload the frame so the review shows the current page.
+// Saved edits, deletions and placed images come back through the usual restore. Held off while the user is typing.
+let lastInput = 0, changeStamp;
+async function pollChanges() {
+  try {
+    const r = await fetch('/__review/changes', { cache: 'no-store' });
+    const { stamp } = await r.json();
+    if (stamp && changeStamp && stamp !== changeStamp && Date.now() - lastInput > 2000) {
+      changeStamp = stamp;
+      toast('Page changed on disk, reloading');
+      iframe.contentWindow.location.reload();
+    } else if (stamp) changeStamp = stamp;
+  } catch (e) {}
+  setTimeout(pollChanges, 1500);
+}
+pollChanges();
+
 // ---------- modes ----------
 function setMode(mode) {
   body.setAttribute('data-mode', mode);
@@ -138,6 +156,7 @@ function onPageLoad() {
   indexPage();
   markDropZones();
   doc.addEventListener('input', () => {
+    lastInput = Date.now();
     const changed = {};
     doc.querySelectorAll('[data-rv]').forEach((el) => { const id = el.getAttribute('data-rv'); if (originals[id] && readText(el) !== originals[id].text) changed[id] = { html: el.innerHTML, before: originals[id].text }; });
     edits().forEach((e) => { if (e.deleted) { const id = Object.keys(originals).find((k) => originals[k].selector === e.selector && originals[k].text === e.before); if (id) changed[id] = { deleted: true, before: e.before }; } });
