@@ -33,6 +33,7 @@ function field(text: string, name: string): string {
 type Edit = { selector?: string; before?: string; after?: string; deleted?: boolean }
 type Mark = { kind?: string; text?: string; anchor?: { selector?: string; text?: string } | null }
 type Placed = { name?: string; place?: string; anchor?: { selector?: string; text?: string }; caption?: string }
+type Slot = { anchor?: { selector?: string; text?: string }; text?: string }
 
 const LABELS: Record<string, string> = { h1: 'title', h2: 'heading', h3: 'heading', h4: 'heading', p: 'paragraph', li: 'list item', figcaption: 'caption', a: 'link', blockquote: 'quote', button: 'button', td: 'cell', th: 'cell' }
 
@@ -47,7 +48,7 @@ function labelFor(selector: string): string {
 }
 
 // One or two sentences for the pane: what was retyped, then what was drawn. Deterministic, built from the json.
-export function summarize(edits: Edit[], marks: Mark[], images: Placed[] = []): string {
+export function summarize(edits: Edit[], marks: Mark[], images: Placed[] = [], slots: Slot[] = []): string {
   const parts: string[] = []
   const retyped = edits.filter(e => !e.deleted && (e.after ?? '').trim())
   const cut = edits.filter(e => e.deleted || !(e.after ?? '').trim())
@@ -78,6 +79,11 @@ export function summarize(edits: Edit[], marks: Mark[], images: Placed[] = []): 
     const more = images.length - shown.length
     parts.push(`Placed ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}.`)
   }
+  if (slots.length) {
+    const where = slots.slice(0, 2).map(s => `after the ${labelFor(s.anchor?.selector ?? '')}${s.anchor?.text ? ` "${snip(s.anchor.text, 4)}"` : ''}`)
+    const more = slots.length - where.length
+    parts.push(`Added ${slots.length} empty screenshot ${slots.length === 1 ? 'slot' : 'slots'} ${where.join(', ')}${more > 0 ? ` and ${more} more` : ''}.`)
+  }
   return parts.join(' ')
 }
 
@@ -92,12 +98,12 @@ async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> 
   const jsonName = field(text, 'json')
   if (jsonName && (await $.fs.exists(`${inbox}/${jsonName}`))) {
     try {
-      const data = JSON.parse(await $.fs.read(`${inbox}/${jsonName}`)) as { edits?: Edit[]; marks?: Mark[]; images?: Placed[]; tldr?: string }
+      const data = JSON.parse(await $.fs.read(`${inbox}/${jsonName}`)) as { edits?: Edit[]; marks?: Mark[]; images?: Placed[]; slots?: Slot[]; tldr?: string }
       edits = (data.edits ?? []).length
       marks = (data.marks ?? []).length
       images = (data.images ?? []).length
       tldr = String(data.tldr ?? '').trim()
-      summary = summarize(data.edits ?? [], data.marks ?? [], data.images ?? [])
+      summary = summarize(data.edits ?? [], data.marks ?? [], data.images ?? [], data.slots ?? [])
     } catch {
       // a half-written json file: counts stay at zero, the markdown still carries everything
     }

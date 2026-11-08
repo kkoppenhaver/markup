@@ -1,7 +1,7 @@
 {
   "name": "markup-review",
   "displayName": "Markup Review",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Scribble on a page, retype its copy, press Cmd+Enter, and Claude gets the notes. A tldraw layer over any local page, served by a bundled Python server, with a /review command and a notes pane.",
   "author": { "name": "Keanan Koppenhaver" },
   "license": "MIT",

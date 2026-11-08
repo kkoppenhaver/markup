@@ -40,6 +40,8 @@
   body[data-mode="edit"] #canvas, body[data-mode="browse"] #canvas { pointer-events: none; }
   body[data-mode="edit"] #canvas .tlui-layout, body[data-mode="browse"] #canvas .tlui-layout { opacity: .35; }
   body[data-mode="edit"] #page { outline: 3px solid var(--hot); outline-offset: -3px; }
+  body.rv-placing #stage, body.rv-placing #canvas .tl-container, body.rv-placing #canvas .tl-canvas { cursor: crosshair !important; }
+  body.rv-placing #addBtn { background: var(--hot); color: var(--ink); font-weight: 700; }
   /* TL;DR panel */
   #tldr { position: fixed; right: 14px; bottom: 14px; width: 360px; max-width: calc(100vw - 28px); background: var(--chrome); border: 1px solid #2a2a31; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.45); z-index: 30; display: none; flex-direction: column; overflow: hidden; }
   #tldr.open { display: flex; }
@@ -63,6 +65,7 @@
     <span class="spacer"></span>
     <span class="url" id="urlLabel"></span>
     <span class="count" id="count" title="marks + edits">0</span>
+    <button type="button" id="addBtn" title="Add a screenshot slot where you click next">+ Image</button>
     <button type="button" id="tldrBtn">TL;DR<kbd>^/</kbd></button>
     <button type="button" id="copyBtn" title="Copy the notes as markdown">Copy</button>
     <button type="button" id="clearBtn">Clear all</button>
@@ -78,6 +81,7 @@
     <textarea id="tldrText" placeholder="The big-picture note. What's working, what isn't, what to do next."></textarea>
   </aside>
   <div id="toast"></div>
+  <input type="file" id="fileInput" accept="image/*" hidden>
   <script type="module" src="review.js"></script>
 </body>
 </html>

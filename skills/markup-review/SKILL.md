@@ -55,14 +55,17 @@ Do this, in order:
 3. Apply each copy edit to the source, not to the served HTML. `~~text~~` in an "after" means delete that text. An edit with `deleted:` instead of `after:` means the user removed that whole element (a heading, a paragraph, a list item): take it out of the source. Keep the user's words exactly; do not improve them.
 4. Act on each mark. A `dot` is a pen tap a few pixels wide with no text, almost always accidental: skip it and say so. An arrow or circle with no text means "look here"; use the anchor's selector and the screenshot to work out what is wrong, and if it is not clear, ask about that one mark rather than guessing. A sticky note or text shape is an instruction.
 5. Place each image. A `## Images` section lists screenshots the user dropped or pasted onto the page, one file each in the inbox, with where it went (replacing a `[Screenshot: ...]` placeholder, replacing an existing image, or after an element), the caption they typed, and alt text. The inbox is not the destination: move the file into the project's media folder with a name taken from the page and anchor, resize it to the site's convention (a 2x-screen capture is twice the size it should display at), and put a figure with that caption and alt where the notes say, removing the placeholder. Match the figure markup the site already uses.
-6. Reply with one line per note saying what changed, in the same order as the file. Mention anything you skipped and why.
-7. Leave the inbox alone. Do not delete notes files and never clear the user's canvas; they clear it when a round is done.
+6. Add each new slot. A `## New screenshot slots` section lists placeholder lines the user added with **+ Image** and left empty, each by the element it follows and the text they typed. Insert that line into the source after the anchor, in the style the page already uses for placeholders (a bold bracketed line, or a figure stub), so the next round can drop a screenshot on it.
+7. Reply with one line per note saying what changed, in the same order as the file. Mention anything you skipped and why.
+8. Leave the inbox alone. Do not delete notes files and never clear the user's canvas; they clear it when a round is done.
 
 If the user says "read my notes" and no prompt has arrived, call `review_notes` for the latest files, or check the review tab through the Chrome extension: `window.__review.get()` returns the same data live. If neither helps, ask them to press Cmd+Enter in the review tab.
 
 ## Screenshots
 
 In any mode, dragging an image file onto the page, or pasting one with Cmd+V, puts it into the page as a figure at that spot. Dropped on a `[Screenshot: ...]` placeholder line, it replaces the line and takes the caption from it. Dropped on an existing image, it replaces that image. Anywhere else, it goes after the paragraph under the pointer. The caption is a text under the image; the user edits it in edit-copy mode. A paste with no position goes to the first placeholder on screen, or to the cursor in edit mode.
+
+Every placeholder shows a × in its corner. Clicking it on a placeholder from the source deletes that element (it arrives as a deleted copy edit); on a slot the user added it just removes the slot. **+ Image** in the toolbar, then a click on the page, adds an empty slot after the block under the pointer and opens the file picker; cancelling the picker leaves the slot for later. An image dropped on an added slot arrives as a figure "after" the slot's anchor, since the slot itself is not in the source.
 
 ## Shortcuts the user has
 

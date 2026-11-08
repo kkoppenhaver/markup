@@ -48,7 +48,7 @@ The review page has three modes:
 - **Edit copy** (Ctrl+2, or the backtick key) lets you click into any text and retype it. Cmd+Shift+X strikes words out.
 - **Browse** (Ctrl+3) makes the page behave normally again.
 
-Screenshots go straight into the page. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Any `[Screenshot: ...]` placeholder line on the page shows up as a dashed drop zone that lights up while you drag; drop there to replace the line, or drop on an existing image to replace that image.
+Screenshots go straight into the page. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Any `[Screenshot: ...]` placeholder line on the page shows up as a dashed drop zone that lights up while you drag; drop there to replace the line, or drop on an existing image to replace that image. Each zone has a × to remove it. **+ Image** then a click adds a new slot wherever you point, and opens the file picker; cancel it and the empty slot stays for later.
 
 For the big-picture verdict, Ctrl+/ opens the **TL;DR** box.
 
@@ -78,6 +78,8 @@ Too much copy above the fold. Cut the second paragraph.
 ## Marks on the page (2, top to bottom)
 1. arrow on `h1` ("Pricing that scales")
 2. note: "make this the headline" on `h2:nth-of-type(1)` ("Simple, honest plans")
+## New screenshot slots (1)
+1. after `main > p:nth-of-type(9)` ("The build takes about thirty seconds…"): [Screenshot: the terminal during a build. Caption: One track, thirty seconds.]
 ## Images (1)
 1. `kit.png` (2880×1640, 2x screen) replacing the placeholder `main > p:nth-of-type(6)` ("[Screenshot: the album kit…")
    - file: /project/.review/inbox/20261106-013000-pricing-img-1.png
@@ -124,7 +126,6 @@ The mod is what makes it feel seamless. It owns the server process for the sessi
 - tldraw shows a small "get a license" badge in local use, and a tldraw license removes it.
 - Copy edits map to a CSS selector. Turning that into the right component in your codebase is Claude's job, and it uses the selector plus the surrounding text to get there.
 - It's built for mouse and trackpad. Touch works, but it isn't designed for it.
-- There is no button for "drop this screenshot slot" or "add an image here". Today you delete a placeholder line in edit mode like any other text, and you add an image where there is no placeholder by dropping it on the paragraph it should follow. Both work, neither is discoverable. A small control on each placeholder and a way to insert an empty slot are on the list.
 
 ## Give it a try
 

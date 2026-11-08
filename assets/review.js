@@ -22,7 +22,10 @@ try {
   Object.keys(raw).forEach((id) => { if (raw[id] && typeof raw[id] === 'object' && (typeof raw[id].html === 'string' || raw[id].deleted)) savedEdits[id] = raw[id]; });
 } catch (e) {}
 
-let images = [];      // placed screenshots: { id, name, type, dataUrl, w, h, dpr, alt, caption, anchor, place }
+let images = [];      // placed screenshots: { id, name, type, dataUrl, w, h, dpr, alt, caption, anchor, place, slot? }
+let slots = [];       // screenshot slots the reviewer added: { id, anchor, text }. They are not in the source yet.
+try { slots = JSON.parse(localStorage.getItem(storeKey + ':slots') || '[]'); if (!Array.isArray(slots)) slots = []; } catch (e) { slots = []; }
+function saveSlots() { try { localStorage.setItem(storeKey + ':slots', JSON.stringify(slots)); } catch (e) {} }
 
 // Image files are too big for localStorage, so they live in IndexedDB under the page's key.
 const idb = {
@@ -82,6 +85,7 @@ function onKey(e) {
   if (e.ctrlKey && !e.metaKey && ['1', '2', '3'].includes(e.key)) { e.preventDefault(); setMode(['draw', 'edit', 'browse'][+e.key - 1]); return; }
   if (e.ctrlKey && e.key === '/') { e.preventDefault(); toggleTldr(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); return; }
+  if (e.key === 'Escape' && placing) { e.preventDefault(); stopPlacing(); toast('Cancelled'); return; }
   if (e.key === '`' && !typing) { e.preventDefault(); setMode(body.dataset.mode === 'draw' ? 'edit' : 'draw'); return; }
   if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 'x' && doc && body.dataset.mode === 'edit') { e.preventDefault(); doc.execCommand('strikeThrough'); }
 }
@@ -108,7 +112,7 @@ function cssPath(el) {
     let seg = node.tagName.toLowerCase();
     if (node.id) { parts.unshift('#' + node.id); break; }
     if (node.dataset && node.dataset.label) { seg += '[data-label="' + node.dataset.label + '"]'; parts.unshift(seg); break; }
-    const sibs = node.parentElement ? Array.from(node.parentElement.children).filter((c) => c.tagName === node.tagName) : [];
+    const sibs = node.parentElement ? Array.from(node.parentElement.children).filter((c) => c.tagName === node.tagName && !c.hasAttribute('data-rv-new') && !c.hasAttribute('data-rv-image')) : [];
     if (sibs.length > 1) seg += ':nth-of-type(' + (sibs.indexOf(node) + 1) + ')';
     parts.unshift(seg);
     node = node.parentElement;
@@ -154,21 +158,11 @@ function onPageLoad() {
   doc = iframe.contentDocument; win = iframe.contentWindow;
   const lift = doc.createElement('style'); lift.textContent = '.switcher{bottom:74px !important} html{scroll-behavior:auto !important}'; doc.head.appendChild(lift);
   indexPage();
+  restoreSlots();
   markDropZones();
-  doc.addEventListener('input', () => {
-    lastInput = Date.now();
-    const changed = {};
-    doc.querySelectorAll('[data-rv]').forEach((el) => { const id = el.getAttribute('data-rv'); if (originals[id] && readText(el) !== originals[id].text) changed[id] = { html: el.innerHTML, before: originals[id].text }; });
-    edits().forEach((e) => { if (e.deleted) { const id = Object.keys(originals).find((k) => originals[k].selector === e.selector && originals[k].text === e.before); if (id) changed[id] = { deleted: true, before: e.before }; } });
-    savedEdits = changed;
-    try { localStorage.setItem(storeKey + ':edits', JSON.stringify(changed)); } catch (e) {}
-    // Captions typed under placed images live in the page; keep the records in step so they survive a reload.
-    let captionsChanged = false;
-    images.forEach((r) => { const cap = doc.querySelector('[data-rv-caption="' + r.id + '"]'); if (cap && cap.textContent !== r.caption) { r.caption = cap.textContent; captionsChanged = true; } });
-    if (captionsChanged) void saveImages();
-    updateCount();
-  });
+  doc.addEventListener('input', () => { lastInput = Date.now(); recordEdits(); });
   doc.addEventListener('keydown', onKey, true);
+  doc.addEventListener('pointerdown', (e) => onPointerDown(e, e.clientX, e.clientY), true);
   // Drops and pastes that land in the frame itself (edit and browse modes, where the canvas lets pointer events through).
   doc.addEventListener('dragover', (e) => { if (hasImageFiles(e.dataTransfer)) { e.preventDefault(); dragging(true, e.clientX + win.scrollX, e.clientY + win.scrollY); } }, true);
   doc.addEventListener('dragleave', (e) => { if (!e.relatedTarget) dragging(false); }, true);
@@ -182,6 +176,24 @@ function onPageLoad() {
   updateCount();
 }
 iframe.addEventListener('load', onPageLoad);
+
+// Snapshot what the reviewer has changed in the page into localStorage: retyped elements, deletions, captions, slot text.
+function recordEdits() {
+  if (!doc) return;
+  const changed = {};
+  doc.querySelectorAll('[data-rv]').forEach((el) => { const id = el.getAttribute('data-rv'); if (originals[id] && readText(el) !== originals[id].text) changed[id] = { html: el.innerHTML, before: originals[id].text }; });
+  edits().forEach((e) => { if (e.deleted) { const id = Object.keys(originals).find((k) => originals[k].selector === e.selector && originals[k].text === e.before); if (id) changed[id] = { deleted: true, before: e.before }; } });
+  savedEdits = changed;
+  try { localStorage.setItem(storeKey + ':edits', JSON.stringify(changed)); } catch (e) {}
+  // Captions typed under placed images and the text of added slots live in the page; keep the records in step.
+  let captionsChanged = false;
+  images.forEach((r) => { const cap = doc.querySelector('[data-rv-caption="' + r.id + '"]'); if (cap && cap.textContent !== r.caption) { r.caption = cap.textContent; captionsChanged = true; } });
+  if (captionsChanged) void saveImages();
+  let slotsChanged = false;
+  slots.forEach((x) => { const el = slotEl(x.id); if (el && readText(el) !== x.text) { x.text = readText(el); slotsChanged = true; } });
+  if (slotsChanged) saveSlots();
+  updateCount();
+}
 
 function edits() {
   if (!doc) return [];
@@ -233,7 +245,10 @@ function anchorFor(px, py) {
 const PLACEHOLDER = /\[(screenshot|image|photo|figure|img)\b/i;
 const ZONE_CSS = `
 [data-rv-dropzone]{position:relative;border:2px dashed #b9b9c2;border-radius:10px;padding:.75em 1em 2.1em;background:#fafafc;transition:border-color .15s,background .15s}
-[data-rv-dropzone]::after{content:'Drop a screenshot here, or paste';position:absolute;left:1em;bottom:.6em;font:600 12px/1 system-ui,-apple-system,sans-serif;letter-spacing:.02em;color:#8a8a96;text-transform:none}
+[data-rv-dropzone]::before{content:'×';position:absolute;top:5px;right:7px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:700 18px/1 system-ui,-apple-system,sans-serif;color:#8a8a96;background:#ececf1;cursor:pointer}
+[data-rv-dropzone]:hover::before{color:#fff;background:#d64545}
+[data-rv-new]::after{content:'New slot. Retype this line in edit mode, drop a screenshot on it, or × to remove it' !important}
+[data-rv-dropzone]::after{content:'Drop a screenshot here, paste, or × to remove the slot';position:absolute;left:1em;bottom:.6em;font:600 12px/1 system-ui,-apple-system,sans-serif;letter-spacing:.02em;color:#8a8a96;text-transform:none}
 body.rv-dragging [data-rv-dropzone]{border-color:#e6b500;background:#fff7d6}
 body.rv-dragging [data-rv-dropzone]::after{content:'Drop here';color:#8a6a00}
 body.rv-dragging [data-rv-dropzone].rv-over{border-style:solid;border-color:#d99e00;background:#ffe9a3;box-shadow:0 0 0 4px rgba(255,213,74,.35)}
@@ -291,18 +306,29 @@ function planFor(el, file) {
   const btext = (block.textContent || '').replace(/\s+/g, ' ').trim();
   if (PLACEHOLDER.test(btext)) {
     const m = btext.match(/^\[?\s*(?:screenshot|image|photo|figure|img)\s*:?\s*(.*?)(?:\s*caption:\s*(.*?))?\s*\]?$/i);
-    const alt = m && m[1] ? m[1].replace(/[.\s]+$/, '') : '';
-    const caption = m && m[2] ? m[2].replace(/\]$/, '').trim() : '';
+    let alt = m && m[1] ? m[1].replace(/[.\s]+$/, '') : '';
+    let caption = m && m[2] ? m[2].replace(/\]$/, '').trim() : '';
+    if (block.hasAttribute('data-rv-new')) {
+      const slot = slots.find((x) => x.id === block.getAttribute('data-rv-new'));
+      if (/^what it shows$/i.test(alt)) alt = '';
+      if (/^what to say under it$/i.test(caption)) caption = '';
+      return { place: 'after', slot: block.getAttribute('data-rv-new'), anchor: slot ? slot.anchor : { selector: cssPath(block), text: btext.slice(0, 90) }, alt, caption: caption || humanName(file.name) || 'Add a caption' };
+    }
     return { place: 'replace', anchor: { selector: cssPath(block), text: btext.slice(0, 90) }, alt, caption: caption || humanName(file.name) || 'Add a caption' };
   }
   return { place: 'after', anchor: { selector: cssPath(block), text: btext.slice(0, 90) }, alt: '', caption: humanName(file.name) || 'Add a caption' };
 }
 function resolveAnchor(anchor) {
+  const textOf = (el) => (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90);
   let el = null;
   try { el = doc.querySelector(anchor.selector); } catch (e) {}
-  if (!el) return null;
-  const text = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90);
-  return text === anchor.text ? el : null;
+  if (el && textOf(el) === anchor.text) return el;
+  // Selectors count source elements only, so with added slots or placed figures in the page the nth-of-type can
+  // point one off. Fall back to the one element of that tag with the same text.
+  const tag = (anchor.selector.split('>').pop() || '').trim().replace(/[:#.[].*$/, '');
+  if (!tag) return null;
+  const same = Array.from(doc.querySelectorAll(tag)).filter((c) => !c.hasAttribute('data-rv-new') && !c.hasAttribute('data-rv-image') && textOf(c) === anchor.text);
+  return same.length === 1 ? same[0] : null;
 }
 function buildFigure(rec) {
   const fig = doc.createElement('figure');
@@ -326,7 +352,9 @@ function mountImage(rec) {
   }
   const fig = buildFigure(rec);
   if (rec.place === 'replace') { el.setAttribute('data-rv-hidden', rec.id); el.removeAttribute('data-rv-dropzone'); el.style.display = 'none'; }
-  el.insertAdjacentElement('afterend', fig);
+  let after = el;
+  if (rec.slot) { const sl = slotEl(rec.slot); if (sl) { sl.setAttribute('data-rv-hidden', rec.id); sl.removeAttribute('data-rv-dropzone'); sl.style.display = 'none'; after = sl; } }
+  after.insertAdjacentElement('afterend', fig);
   return true;
 }
 function unmountImage(rec) {
@@ -371,7 +399,7 @@ async function dropFiles(files, px, py, at) {
 }
 function visiblePlaceholder() {
   const top = win.scrollY, bottom = top + win.innerHeight;
-  for (const el of doc.querySelectorAll('[data-rv]')) {
+  for (const el of doc.querySelectorAll('[data-rv], [data-rv-new]')) {
     if (!PLACEHOLDER.test(el.textContent || '') || el.closest('[data-rv-hidden]') || el.hasAttribute('data-rv-hidden')) continue;
     const r = el.getBoundingClientRect(); const y = r.top + top;
     if (y >= top && y <= bottom) return el;
@@ -396,6 +424,82 @@ async function restoreImages() {
   if (dropped) { await saveImages(); setTimeout(() => toast(dropped + (dropped === 1 ? ' image' : ' images') + ' already in the source, dropped'), 300); }
   updateCount();
 }
+// ---------- screenshot slots the reviewer adds ----------
+// "+ Image" then a click puts an empty placeholder line after the block under the pointer, as a drop zone. It is
+// not in the source, so the notes list it by the element it follows. Dropping a file on it places a figure there.
+const SLOT_TEXT = '[Screenshot: what it shows. Caption: what to say under it]';
+function slotEl(id) { return doc ? doc.querySelector('[data-rv-new="' + id + '"]') : null; }
+function mountSlot(rec) {
+  const el = resolveAnchor(rec.anchor); if (!el) return false;
+  const p = doc.createElement('p'); p.setAttribute('data-rv-new', rec.id); p.setAttribute('data-rv-dropzone', '');
+  const b = doc.createElement('strong'); b.textContent = rec.text || SLOT_TEXT; p.appendChild(b);
+  el.insertAdjacentElement('afterend', p);
+  return true;
+}
+function restoreSlots() {
+  const kept = []; let dropped = 0;
+  slots.forEach((rec) => { if (mountSlot(rec)) kept.push(rec); else dropped++; });
+  slots = kept; if (dropped) saveSlots();
+}
+function addSlotAfter(el) {
+  let block = blockOf(el);
+  // After a placed figure or a hidden placeholder, anchor to the source element they sit on.
+  if (block.hasAttribute('data-rv-image') || block.hasAttribute('data-rv-hidden')) { const prev = block.previousElementSibling; if (prev) block = prev; }
+  const text = (block.textContent || '').replace(/\s+/g, ' ').trim();
+  const rec = { id: 'slot-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), anchor: { selector: cssPath(block), text: text.slice(0, 90) }, text: SLOT_TEXT };
+  if (!mountSlot(rec)) return null;
+  slots.push(rec); saveSlots(); updateCount();
+  return slotEl(rec.id);
+}
+// Remove a drop zone: a slot the reviewer added goes away quietly; a placeholder from the source is a deletion.
+function removeSlot(zone) {
+  const id = zone.getAttribute('data-rv-new');
+  zone.remove();
+  if (id) { slots = slots.filter((x) => x.id !== id); saveSlots(); } else recordEdits();
+  updateCount();
+  toast(id ? 'Slot removed' : 'Placeholder removed. Claude will take it out of the source.');
+}
+// Is this point (frame client coordinates) on the × of a drop zone?
+function closeHit(cx, cy) {
+  if (!doc) return null;
+  const el = doc.elementFromPoint(cx, cy); const zone = el && el.closest('[data-rv-dropzone]'); if (!zone) return null;
+  const r = zone.getBoundingClientRect();
+  return cx >= r.right - 40 && cy <= r.top + 40 ? zone : null;
+}
+function slotRecords() { return slots.filter((x) => { const el = slotEl(x.id); return el && !el.hasAttribute('data-rv-hidden'); }).map((x) => ({ id: x.id, anchor: x.anchor, text: x.text })); }
+
+// Placing: after "+ Image", the next click on the page chooses where the slot goes, then the file picker opens.
+let placing = false;
+const fileInput = $('#fileInput');
+let pendingSlot = null;
+function startPlacing() { placing = true; body.classList.add('rv-placing'); $('#hint').textContent = 'Click where the image goes. Esc to cancel.'; }
+function stopPlacing() { placing = false; body.classList.remove('rv-placing'); setMode(body.dataset.mode); }
+$('#addBtn').addEventListener('click', () => (placing ? stopPlacing() : startPlacing()));
+fileInput.addEventListener('change', () => {
+  const files = Array.from(fileInput.files || []); const slot = pendingSlot; pendingSlot = null; fileInput.value = '';
+  if (files.length && slot && doc.contains(slot)) void dropFiles(files, 0, 0, slot);
+});
+// One handler for clicks that reach the review page (draw mode, canvas on top) and clicks inside the frame.
+function onPointerDown(e, cx, cy) {
+  if (!doc || e.button !== 0) return;
+  if (placing) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    const a = anchorFor(cx + win.scrollX, cy + win.scrollY);
+    let el = null; if (a) { try { el = doc.querySelector(a.selector); } catch (err) {} }
+    if (!el) el = doc.elementFromPoint(cx, cy) || doc.body;
+    const slot = addSlotAfter(el);
+    stopPlacing();
+    if (!slot) { toast('Could not add a slot there'); return; }
+    pendingSlot = slot;
+    toast('Slot added. Pick a file, or cancel to leave it empty and drop one later.');
+    fileInput.click();
+    return;
+  }
+  const zone = closeHit(cx, cy);
+  if (zone) { e.preventDefault(); e.stopImmediatePropagation(); removeSlot(zone); }
+}
+window.addEventListener('pointerdown', (e) => { const r = iframe.getBoundingClientRect(); const cx = e.clientX - r.left, cy = e.clientY - r.top; if (cy >= 0) onPointerDown(e, cx, cy); }, true);
+
 // Drops and pastes on the review page itself (draw mode, where the canvas is on top). Capture phase, so tldraw
 // never sees them and does not make its own image shape.
 window.addEventListener('dragover', (e) => {
@@ -443,7 +547,7 @@ function syncCamera() {
 }
 function updateCount() {
   if (doc) pruneImages();
-  const n = (editor ? editor.getCurrentPageShapeIds().size : 0) + edits().length + images.length + (tldrText.value.trim() ? 1 : 0);
+  const n = (editor ? editor.getCurrentPageShapeIds().size : 0) + edits().length + images.length + slotRecords().length + (tldrText.value.trim() ? 1 : 0);
   $('#count').textContent = n;
 }
 
@@ -507,7 +611,12 @@ function markdown() {
     });
     L.push('');
   }
-  if (!d.tldr && !d.edits.length && !d.marks.length && !d.images.length) L.push('_No notes yet._');
+  if (d.slots.length) {
+    L.push('## New screenshot slots (' + d.slots.length + ')', '');
+    d.slots.forEach((x, i) => L.push((i + 1) + '. after `' + x.anchor.selector + '` ("' + x.anchor.text.slice(0, 60) + '"): ' + x.text));
+    L.push('');
+  }
+  if (!d.tldr && !d.edits.length && !d.marks.length && !d.images.length && !d.slots.length) L.push('_No notes yet._');
   return L.join('\n');
 }
 function imageRecords() {
@@ -515,7 +624,7 @@ function imageRecords() {
   return images.map((r) => ({ id: r.id, name: r.name, type: r.type, w: r.w, h: r.h, dpr: r.dpr, alt: r.alt, caption: captionOf(r), anchor: r.anchor, place: r.place }));
 }
 function get() {
-  return { url: targetUrl, mode: body.dataset.mode, tldr: tldrText.value.trim(), edits: edits(), marks: marks(), images: imageRecords(), scrollY: win ? win.scrollY : 0 };
+  return { url: targetUrl, mode: body.dataset.mode, tldr: tldrText.value.trim(), edits: edits(), marks: marks(), images: imageRecords(), slots: slotRecords(), scrollY: win ? win.scrollY : 0 };
 }
 async function png() {
   if (!editor) return null;
@@ -526,9 +635,9 @@ async function png() {
 async function clearAll() {
   if (editor) editor.deleteShapes(Array.from(editor.getCurrentPageShapeIds()));
   savedEdits = {}; tldrText.value = '';
-  images.forEach(unmountImage); images = [];
+  images.forEach(unmountImage); images = []; slots = [];
   try { await idb.set(storeKey, []); } catch (e) {}
-  try { localStorage.removeItem(storeKey + ':edits'); localStorage.removeItem(storeKey + ':tldr'); } catch (e) {}
+  try { localStorage.removeItem(storeKey + ':edits'); localStorage.removeItem(storeKey + ':tldr'); localStorage.removeItem(storeKey + ':slots'); } catch (e) {}
   iframe.contentWindow.location.reload();
   toast('Cleared');
 }
@@ -544,7 +653,7 @@ let sending = false;
 async function send() {
   if (sending) return;
   const d = get();
-  if (!d.tldr && !d.edits.length && !d.marks.length && !d.images.length) { toast('Nothing to send yet'); return; }
+  if (!d.tldr && !d.edits.length && !d.marks.length && !d.images.length && !d.slots.length) { toast('Nothing to send yet'); return; }
   sending = true; const btn = $('#sendBtn'); btn.disabled = true; btn.firstChild.textContent = 'Sending';
   try {
     const image = await png();
@@ -561,5 +670,5 @@ async function send() {
 }
 $('#sendBtn').addEventListener('click', send);
 
-window.__review = { get, markdown, png, send, clear: clearAll, setMode, placeFile, removeImage, images: () => images, scrollTo: (y) => win && win.scrollTo({ top: y, behavior: 'instant' }), get editor() { return editor; }, toRichText };
+window.__review = { get, markdown, png, send, clear: clearAll, setMode, placeFile, removeImage, addSlotAfter, removeSlot, startPlacing, images: () => images, slots: () => slots, scrollTo: (y) => win && win.scrollTo({ top: y, behavior: 'instant' }), get editor() { return editor; }, toRichText };
 try { const m = localStorage.getItem(storeKey + ':mode'); if (m) setMode(m); } catch (e) {}
