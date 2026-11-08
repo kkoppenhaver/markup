@@ -19,7 +19,7 @@ let savedEdits = {};  // data-rv id -> { html, before }  (before = the page text
 try {
   const raw = JSON.parse(localStorage.getItem(storeKey + ':edits') || '{}');
   // Entries saved by an older version are bare innerHTML strings with nothing to verify them against; drop them.
-  Object.keys(raw).forEach((id) => { if (raw[id] && typeof raw[id] === 'object' && typeof raw[id].html === 'string') savedEdits[id] = raw[id]; });
+  Object.keys(raw).forEach((id) => { if (raw[id] && typeof raw[id] === 'object' && (typeof raw[id].html === 'string' || raw[id].deleted)) savedEdits[id] = raw[id]; });
 } catch (e) {}
 
 let images = [];      // placed screenshots: { id, name, type, dataUrl, w, h, dpr, alt, caption, anchor, place }
@@ -114,7 +114,8 @@ function indexPage() {
     if (el.closest('.switcher')) return;
     const id = String(n++);
     el.setAttribute('data-rv', id);
-    originals[id] = { selector: cssPath(el), text: readText(el) };
+    const up = el.parentElement && el.parentElement.closest('[data-rv]');
+    originals[id] = { selector: cssPath(el), text: readText(el), parent: up ? up.getAttribute('data-rv') : null };
   });
   // Re-apply edits saved from a previous visit, but only onto the text they were made against. When the
   // source has changed since (Claude applied the edit, or elements were added and the ids shifted), the
@@ -123,7 +124,7 @@ function indexPage() {
   Object.keys(savedEdits).forEach((id) => {
     const el = doc.querySelector('[data-rv="' + id + '"]');
     const saved = savedEdits[id];
-    if (el && originals[id] && saved.before === originals[id].text) el.innerHTML = saved.html;
+    if (el && originals[id] && saved.before === originals[id].text) { if (saved.deleted) el.remove(); else el.innerHTML = saved.html; }
     else { delete savedEdits[id]; dropped++; }
   });
   if (dropped) {
@@ -139,6 +140,7 @@ function onPageLoad() {
   doc.addEventListener('input', () => {
     const changed = {};
     doc.querySelectorAll('[data-rv]').forEach((el) => { const id = el.getAttribute('data-rv'); if (originals[id] && readText(el) !== originals[id].text) changed[id] = { html: el.innerHTML, before: originals[id].text }; });
+    edits().forEach((e) => { if (e.deleted) { const id = Object.keys(originals).find((k) => originals[k].selector === e.selector && originals[k].text === e.before); if (id) changed[id] = { deleted: true, before: e.before }; } });
     savedEdits = changed;
     try { localStorage.setItem(storeKey + ':edits', JSON.stringify(changed)); } catch (e) {}
     // Captions typed under placed images live in the page; keep the records in step so they survive a reload.
@@ -170,6 +172,16 @@ function edits() {
     if (changed.some((other) => other !== el && other.contains(el))) return;
     const o = originals[el.getAttribute('data-rv')];
     out.push({ selector: o.selector, before: o.text, after: readText(el) });
+  });
+  // Elements the reviewer deleted outright (select across blocks, press Delete) are gone from the document, so
+  // the loop above never sees them. Report each removed subtree once, by its topmost element, as deleted.
+  const gone = (id) => !doc.querySelector('[data-rv="' + id + '"]');
+  Object.keys(originals).forEach((id) => {
+    if (!gone(id)) return;
+    let p = originals[id].parent;
+    while (p !== null && p !== undefined && !gone(p)) p = originals[p].parent;
+    if (p !== null && p !== undefined) return;  // an ancestor is reported instead
+    out.push({ selector: originals[id].selector, before: originals[id].text, after: '', deleted: true });
   });
   return out;
 }
@@ -402,7 +414,7 @@ function marks() {
     let ax = b.midX, ay = b.midY;
     if (shape.type === 'arrow' && shape.props.end) { ax = shape.x + shape.props.end.x; ay = shape.y + shape.props.end.y; }
     const text = shapeText(shape);
-    const kind = shape.type === 'draw' ? (b.w > b.h * 4 && b.h < 40 ? 'underline' : 'scribble') : shape.type;
+    const kind = shape.type === 'draw' ? (b.w < 12 && b.h < 12 ? 'dot' : b.w > b.h * 4 && b.h < 40 ? 'underline' : 'scribble') : shape.type;
     return { id: shape.id, kind, text, bounds: { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) }, anchor: anchorFor(ax, ay) };
   }).filter(Boolean).sort((a, b) => a.bounds.y - b.bounds.y);
 }
@@ -454,14 +466,14 @@ function markdown() {
   if (d.tldr) L.push('## TL;DR', '', d.tldr, '');
   if (d.edits.length) {
     L.push('## Copy edits (' + d.edits.length + ')', '');
-    d.edits.forEach((e) => L.push('- `' + e.selector + '`', '  - before: ' + e.before, '  - after: ' + e.after));
+    d.edits.forEach((e) => L.push('- `' + e.selector + '`', '  - before: ' + e.before, e.deleted ? '  - deleted: the whole element is gone from the page' : '  - after: ' + e.after));
     L.push('');
   }
   if (d.marks.length) {
     L.push('## Marks on the page (' + d.marks.length + ', top to bottom)', '');
     d.marks.forEach((m, i) => {
       const where = m.anchor ? (m.anchor.exact ? 'on' : 'near') + ' `' + m.anchor.selector + '` ("' + m.anchor.text.slice(0, 60) + '")' : 'at y=' + m.bounds.y;
-      L.push((i + 1) + '. ' + m.kind + (m.text ? ': "' + m.text + '"' : '') + ' ' + where);
+      L.push((i + 1) + '. ' + m.kind + (m.text ? ': "' + m.text + '"' : '') + ' ' + where + (m.kind === 'dot' ? ' (a ' + m.bounds.w + '×' + m.bounds.h + ' px pen tap, probably accidental)' : ''));
     });
     L.push('');
   }

@@ -60,7 +60,7 @@ If the mod isn't loaded, a prompt hook carries any unread notes along with your 
 
 ## Notes Claude can act on
 
-Claude gets your TL;DR, each copy edit as a CSS selector with the before and after text (`~~text~~` means delete), and each mark (arrow, scribble, note, or text) with the element it points at. Here's what a round looks like:
+Claude gets your TL;DR, each copy edit as a CSS selector with the before and after text (`~~text~~` means delete, and an element you removed outright is listed as deleted), and each mark (arrow, scribble, note, or text) with the element it points at. A pen tap a few pixels wide is reported as a dot, so Claude knows to treat it as a stray. Here's what a round looks like:
 
 ```
 page: /pricing
@@ -70,6 +70,9 @@ Too much copy above the fold. Cut the second paragraph.
 - `section#hero > p:nth-of-type(2)`
   - before: We help teams ship faster with less friction.
   - after: ~~We help teams ship faster with less friction.~~
+- `section#hero > h2:nth-of-type(2)`
+  - before: Trusted by teams everywhere
+  - deleted: the whole element is gone from the page
 ## Marks on the page (2, top to bottom)
 1. arrow on `h1` ("Pricing that scales")
 2. note: "make this the headline" on `h2:nth-of-type(1)` ("Simple, honest plans")

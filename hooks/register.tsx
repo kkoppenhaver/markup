@@ -30,7 +30,7 @@ function field(text: string, name: string): string {
   return m?.[1]?.trim() ?? ''
 }
 
-type Edit = { selector?: string; before?: string; after?: string }
+type Edit = { selector?: string; before?: string; after?: string; deleted?: boolean }
 type Mark = { kind?: string; text?: string; anchor?: { selector?: string; text?: string } | null }
 type Placed = { name?: string; place?: string; anchor?: { selector?: string; text?: string }; caption?: string }
 
@@ -49,8 +49,8 @@ function labelFor(selector: string): string {
 // One or two sentences for the pane: what was retyped, then what was drawn. Deterministic, built from the json.
 export function summarize(edits: Edit[], marks: Mark[], images: Placed[] = []): string {
   const parts: string[] = []
-  const retyped = edits.filter(e => (e.after ?? '').trim())
-  const cut = edits.filter(e => !(e.after ?? '').trim())
+  const retyped = edits.filter(e => !e.deleted && (e.after ?? '').trim())
+  const cut = edits.filter(e => e.deleted || !(e.after ?? '').trim())
   if (retyped.length) {
     const shown = retyped.slice(0, 3).map(e => `${labelFor(e.selector ?? '')} "${snip(e.before ?? '')}" → "${snip(e.after ?? '')}"`)
     const more = retyped.length - shown.length
