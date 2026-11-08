@@ -68,11 +68,11 @@ The mod sees the file within a second, shows a toast, and starts a Claude turn w
 
 If the mod isn't loaded, a prompt hook carries any unread notes along with your next message instead.
 
-## It stays current, and it works from the couch
+## Your page always stays current
 
-**Hot reload.** You never refresh the review page by hand. When the server is serving a folder, it watches the folder and reloads the frame as soon as a file changes, which is how you watch Claude's edits land after you send a round. When it's proxying a dev server, the dev server's own hot reload passes straight through. Either way your marks, retyped text and placed screenshots are still there after the reload, and any edit Claude has already applied is dropped rather than painted onto the wrong line.
+**Hot reload.** When the server is serving a folder, it watches the folder and reloads the frame as soon as a file changes, which is how you watch Claude's edits land after you send a round. When it's proxying a dev server, the dev server's own hot reload passes straight through. Either way your marks, retyped text and placed screenshots are still there after the reload, and any edit Claude has already applied is dropped rather than painted onto the wrong line.
 
-**From your phone or another machine.** Run `/markup --lan` (or ask Claude for a link for your phone) and the server also listens on your local network. Claude hands you a second URL, something like `http://192.168.0.12:8791/__review/...`, and a Tailscale one if you have Tailscale installed. Open it on the phone and you're reviewing the same page, which pairs well with Claude Code's Remote Control: the session and the server stay on your Mac, you drive both from the couch. It's plain http on purpose. tldraw treats https on a real hostname as production and wants a license key there, so skip the ngrok tunnel. Touch works on the canvas, but a phone is better for retyping copy and writing the TL;DR than for drawing.
+**From your phone or another machine.** Run `/markup --lan` (or ask Claude for a link for your phone) and the server also listens on your local network. Claude hands you a second URL, something like `http://192.168.0.12:8791/__review/...`, and a Tailscale one if you have Tailscale installed. Open it on the phone and you're reviewing the same page, which pairs well with Claude Code's Remote Control: the session and the server stay on your Mac, you drive both from the couch. It's plain http on purpose. Touch works on the canvas, but a phone is better for retyping copy and writing the TL;DR than for drawing.
 
 Without `--lan` the server binds to 127.0.0.1 and nothing leaves your computer.
 
@@ -124,7 +124,7 @@ The mod is what makes it feel seamless. It owns the server process for the sessi
 
 ## Rough edges I know about
 
-- tldraw shows a small "get a license" badge in local use, and a tldraw license removes it. We're working with the tl;draw folks on the best way to handle this!
+- tldraw shows a small "get a license" badge in local use, and a tldraw license removes it. We're working with the tldraw folks on the best way to handle this!
 
 - Copy edits map to a CSS selector. Turning that into the right component in your codebase is Claude's job, and it uses the selector plus the surrounding text to get there.
 
