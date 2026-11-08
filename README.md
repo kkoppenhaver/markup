@@ -1,16 +1,12 @@
 # Markup
 
-I'd ask Claude Code for a landing page, it would hand me back a hero, three feature sections, and a pricing table, and I'd end up typing something like "the second paragraph under the headline, the one that starts with 'We help teams'..." before losing steam.
+This exact thing has happened to me so many times: I'd ask Claude Code for a landing page or a blog post, it would hand me back an entire page that I would have copy and design feedback on, and even using voice mode I found it hard to describe exactly the changes I wanted. What I really wanted was to mark up the page the way I'd mark up a printout and hand it back.
 
-Claude Code produces more pages and copy than I can keep up with in chat, and describing a visual change in prose is exactly where my feedback stalled. What I wanted was to mark up the page the way I'd mark up a printout and hand it back.
-
-This plugin puts a [tldraw](https://tldraw.dev) canvas over any local page so you can draw arrows, scribble notes, and retype the copy right where it sits. Then one keystroke hands it all to Claude.
+This plugin puts a [tldraw](https://tldraw.dev) canvas over any local page so you can draw arrows, scribble notes, and retype the copy right where it sits, then, with one keystroke, you can hand all that feedback back to Claude.
 
 ![The review layer over a blog post: a red arrow at a heading, a sentence struck through in the copy, a caption circled with a sticky note saying "drop this line?" beside it, an empty screenshot slot with its × control, and the TL;DR box, with + Image and Send to Claude in the toolbar](docs/review-page.png)
 
 ## Get it running in Claude Code
-
-The plugin is named `markup-review` and lives in a marketplace named `markup`. In Claude Code, run:
 
 ```
 /plugin marketplace add kkoppenhaver/markup
@@ -34,11 +30,12 @@ Run `/markup` in Claude Code and it starts the bundled server, opens the review 
 /markup dist                          serve a built folder
 /markup http://localhost:3000         proxy a running dev server
 /markup --page /pricing               open a specific page
+/markup --lan                         also get a link for your phone
 ```
 
 Claude also gets two tools, `review_open` and `review_notes`, so saying "let me mark this up" works too.
 
-The page under review stays current. With a dev server behind the proxy, its hot reload channel passes through, so the frame updates the way the plain page would. With a folder, the server watches it and reloads the frame when a file changes, which is how you see Claude's edits land after you send a round. Your marks, retyped text and placed screenshots survive the reload.
+The page under review stays current: edit a file, or let Claude apply a round, and the frame reloads on its own. More on that, and on reviewing from your phone, below.
 
 ## Mark it up like a printout
 
@@ -46,7 +43,7 @@ What you can do on the page, in one list:
 
 - **Draw** on it: pen, arrows, circles, rectangles, sticky notes, text. Each mark arrives with the element it points at.
 - **Retype the copy** in place, and strike words out with Cmd+Shift+X. Claude gets before and after, keyed to the element.
-- **Delete** a heading or paragraph outright. It arrives as a deletion, not a mystery.
+- **Delete** a heading or paragraph outright. It arrives as a deletion and Claude removes it from the underlying file.
 - **Drop or paste screenshots** where they belong. They show up as figures with an editable caption, so you see the text flow around them.
 - **Fill, remove or add screenshot slots.** `[Screenshot: ...]` lines are drop zones, each with a × to remove it, and **+ Image** adds a new slot wherever you click.
 - **Write a TL;DR**, the one note that is about the whole page rather than a spot on it. Claude reads it first.
@@ -59,7 +56,7 @@ The review page has three modes:
 - **Edit copy** (Ctrl+2, or the backtick key) lets you click into any text and retype it. Cmd+Shift+X strikes words out.
 - **Browse** (Ctrl+3) makes the page behave normally again.
 
-Screenshots go straight into the page. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Any `[Screenshot: ...]` placeholder line on the page shows up as a dashed drop zone that lights up while you drag; drop there to replace the line, or drop on an existing image to replace that image. Each zone has a × to remove it. **+ Image** then a click adds a new slot wherever you point, and opens the file picker; cancel it and the empty slot stays for later.
+When you need to add, remove or edit screenshots, your page is ready for that. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Any `[Screenshot: ...]` placeholder line on the page shows up as a dashed drop zone that lights up while you drag; drop there to replace the line, or drop on an existing image to replace that image. Each zone has a × to remove it. **+ Image** then a click adds a new slot wherever you point, and opens the file picker; cancel it and the empty slot stays for later.
 
 For the big-picture verdict, Ctrl+/ opens the **TL;DR** box in the bottom corner. It's the place for "too much copy above the fold" or "this section is done, cut the struck sentence": a note about the page, not a spot on it. It goes at the top of what Claude receives, and the skill tells Claude to read it before touching anything.
 
@@ -70,6 +67,14 @@ When you're done, press **Cmd+Enter**. The notes land in `.review/inbox/` in you
 The mod sees the file within a second, shows a toast, and starts a Claude turn with the notes, so pressing Cmd+Enter in the browser is the same as typing a message. The Review pane lists each round and marks it applied when the turn ends.
 
 If the mod isn't loaded, a prompt hook carries any unread notes along with your next message instead.
+
+## It stays current, and it works from the couch
+
+**Hot reload.** You never refresh the review page by hand. When the server is serving a folder, it watches the folder and reloads the frame as soon as a file changes, which is how you watch Claude's edits land after you send a round. When it's proxying a dev server, the dev server's own hot reload passes straight through. Either way your marks, retyped text and placed screenshots are still there after the reload, and any edit Claude has already applied is dropped rather than painted onto the wrong line.
+
+**From your phone or another machine.** Run `/markup --lan` (or ask Claude for a link for your phone) and the server also listens on your local network. Claude hands you a second URL, something like `http://192.168.0.12:8791/__review/...`, and a Tailscale one if you have Tailscale installed. Open it on the phone and you're reviewing the same page, which pairs well with Claude Code's Remote Control: the session and the server stay on your Mac, you drive both from the couch. It's plain http on purpose. tldraw treats https on a real hostname as production and wants a license key there, so skip the ngrok tunnel. Touch works on the canvas, but a phone is better for retyping copy and writing the TL;DR than for drawing.
+
+Without `--lan` the server binds to 127.0.0.1 and nothing leaves your computer.
 
 ## Notes Claude can act on
 
@@ -99,21 +104,6 @@ Too much copy above the fold. Cut the second paragraph.
 
 It also reads the PNG, since the strokes show things the text can't (like what you circled).
 
-## Everything stays on your machine
-
-Nothing leaves your computer. The server binds to 127.0.0.1.
-
-## Run the server by hand
-
-You can also start the server yourself:
-
-```
-python3 scripts/review_server.py --root ./dist --port 8791 --open
-python3 scripts/review_server.py --proxy http://localhost:3000 --path /pricing --open
-```
-
-The review layer lives at `/__review/?url=<page>`. Notes go to `./.review/inbox/` under whatever directory you ran it from, and you can change that with `--inbox`.
-
 ## Find your way around the code
 
 ```
@@ -134,9 +124,11 @@ The mod is what makes it feel seamless. It owns the server process for the sessi
 
 ## Rough edges I know about
 
-- tldraw shows a small "get a license" badge in local use, and a tldraw license removes it.
+- tldraw shows a small "get a license" badge in local use, and a tldraw license removes it. We're working with the tl;draw folks on the best way to handle this!
+
 - Copy edits map to a CSS selector. Turning that into the right component in your codebase is Claude's job, and it uses the selector plus the surrounding text to get there.
-- It's built for mouse and trackpad. Touch works, but it isn't designed for it.
+
+- It's built for mouse and trackpad. Touch works, but we're still improving it!
 
 ## Give it a try
 
