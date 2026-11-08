@@ -10,11 +10,11 @@ This plugin puts a [tldraw](https://tldraw.dev) canvas over any local page so yo
 
 ## Get it running in Claude Code
 
-The plugin is named `markup-review` and lives in a marketplace named `keanan`. In Claude Code, run:
+The plugin is named `markup-review` and lives in a marketplace named `markup`. In Claude Code, run:
 
 ```
 /plugin marketplace add kkoppenhaver/markup
-/plugin install markup-review@keanan
+/plugin install markup-review@markup
 ```
 
 Or from a local checkout:
