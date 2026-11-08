@@ -13,7 +13,7 @@ const notes = atom({ plugin: 'markup-review', key: 'notes' } as const, [] as Not
 const server = atom({ plugin: 'markup-review', key: 'server' } as const, null as ServerInfo | null, { shape: 'server-1' })
 
 type Eng = EngineInterface
-type OpenOptions = { root?: string; proxy?: string; page?: string }
+type OpenOptions = { root?: string; proxy?: string; page?: string; lan?: boolean }
 
 const inboxOf = (cwd: string) => `${cwd}/.review/inbox`
 const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
@@ -162,14 +162,15 @@ function promptFor(arrived: NoteFile[]): string {
 }
 
 // ---------- server ----------
-async function portFor($: Eng, cwd: string): Promise<{ port: number; reuse?: string }> {
+// A running server for this project is reused unless the LAN was asked for and it only listens on loopback.
+async function portFor($: Eng, cwd: string, needLan = false): Promise<{ port: number; reuse?: string; lan?: string }> {
   for (let port = 8791; port < 8811; port++) {
     try {
       const res = await $.http.fetch(`http://127.0.0.1:${port}/__review/ping`)
       if (res.ok) {
         try {
-          const j = JSON.parse(res.text) as { inbox?: string }
-          if (j.inbox === inboxOf(cwd)) return { port, reuse: `http://127.0.0.1:${port}/__review/` }
+          const j = JSON.parse(res.text) as { inbox?: string; lan?: string | null }
+          if (j.inbox === inboxOf(cwd) && (!needLan || j.lan)) return { port, reuse: `http://127.0.0.1:${port}/__review/`, lan: j.lan ?? undefined }
         } catch {
           // another service answered; try the next port
         }
@@ -196,18 +197,19 @@ async function openBrowser($: Eng, url: string) {
 async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<ServerInfo> {
   const page = opts.page ?? '/'
   const target = opts.proxy ?? (opts.root ? (isAbsolute(opts.root) ? opts.root : `${cwd}/${opts.root}`) : cwd)
+  const q = `?url=${encodeURIComponent(page)}`
   const current = await read($, server)
-  if (current && current.cwd === cwd && current.target === target) {
+  if (current && current.cwd === cwd && current.target === target && (!opts.lan || current.lanUrl)) {
     try {
       const res = await $.http.fetch(`http://127.0.0.1:${current.port}/__review/ping`)
-      if (res.ok) return { ...current, page, url: `http://127.0.0.1:${current.port}/__review/?url=${encodeURIComponent(page)}` }
+      if (res.ok) return { ...current, page, url: `http://127.0.0.1:${current.port}/__review/${q}`, lanUrl: current.lanUrl && current.lanUrl.replace(/\?.*$/, '') + q }
     } catch {
       // it died; start again
     }
   }
-  const found = await portFor($, cwd)
+  const found = await portFor($, cwd, !!opts.lan)
   if (found.reuse) {
-    const info: ServerInfo = { cwd, port: found.port, target, page, url: `${found.reuse}?url=${encodeURIComponent(page)}` }
+    const info: ServerInfo = { cwd, port: found.port, target, page, url: `${found.reuse}${q}`, lanUrl: found.lan ? `${found.lan}/__review/${q}` : undefined }
     await update($, server, () => info)
     return info
   }
@@ -215,6 +217,7 @@ async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<Serv
   const argv = ['python3', `${$.plugin.root}/scripts/review_server.py`, '--port', String(port), '--inbox', inboxOf(cwd), '--path', page, '--quiet']
   if (opts.proxy) argv.push('--proxy', opts.proxy)
   else argv.push('--root', target)
+  if (opts.lan) argv.push('--lan')
   const child = $.process.spawn({ argv, cwd })
 
   const info = await new Promise<ServerInfo>((resolve, reject) => {
@@ -226,9 +229,12 @@ async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<Serv
           buffer += text
           if (!settled) {
             const m = buffer.match(/review\s*:\s*(http\S+)/)
-            if (m) {
+            // With --lan the server prints its lan (and tailscale) lines right after; wait one tick for them.
+            if (m && (!opts.lan || /lan\s*:/.test(buffer) || /\n\s*$/.test(buffer.slice(m.index! + m[0].length)))) {
               settled = true
-              resolve({ cwd, port, target, page, url: m[1] ?? `http://127.0.0.1:${port}/__review/` })
+              const lan = buffer.match(/\blan\s*:\s*(http\S+)/)
+              const ts = buffer.match(/tailscale\s*:\s*(http\S+)/)
+              resolve({ cwd, port, target, page, url: m[1] ?? `http://127.0.0.1:${port}/__review/`, lanUrl: lan?.[1], tailscaleUrl: ts?.[1] })
             } else if (/Address already in use|Traceback|Errno/.test(buffer)) {
               settled = true
               reject(new Error(buffer.slice(-500)))
@@ -261,6 +267,7 @@ function parseArgs(args: string): OpenOptions {
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i] ?? ''
     if (t === '--page' || t === '-p') out.page = tokens[++i]
+    else if (t === '--lan') out.lan = true
     else if (/^https?:\/\//.test(t)) out.proxy = t.replace(/\/$/, '')
     else if (t.startsWith('/') && !t.includes('.') && !out.root && tokens.length === 1 && t.length > 1 && !t.startsWith('/Users') && !t.startsWith('/home')) out.page = t
     else out.root = t
@@ -268,12 +275,16 @@ function parseArgs(args: string): OpenOptions {
   return out
 }
 
-async function openReview($: Eng, cwd: string, opts: OpenOptions): Promise<{ url: string; opened: boolean }> {
+async function openReview($: Eng, cwd: string, opts: OpenOptions): Promise<{ url: string; opened: boolean; remote: string }> {
   const info = await startServer($, cwd, opts)
   const opened = await openBrowser($, info.url)
   $.ui.status(`review: ${info.url}`)
   void $.ui.open({ id: PANE, title: 'Review' })
-  return { url: info.url, opened }
+  // What to hand someone on a phone or another machine. Plain http on purpose: tldraw treats https on a real hostname as production.
+  const remote = opts.lan
+    ? [info.lanUrl ? `On a phone or another machine on the same network: ${info.lanUrl}` : 'Could not work out the LAN address; check ifconfig.', info.tailscaleUrl ? `Over Tailscale: ${info.tailscaleUrl}` : ''].filter(Boolean).join(' ')
+    : ''
+  return { url: info.url, opened, remote }
 }
 
 // ---------- the mod ----------
@@ -326,7 +337,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'markup',
       description: 'Open the markup review layer over this project (a folder, or a dev server URL to proxy)',
-      argumentHint: '[folder | http://localhost:3000] [--page /path]',
+      argumentHint: '[folder | http://localhost:3000] [--page /path] [--lan]',
     })
     await $.tool.register({
       name: 'review_open',
@@ -337,6 +348,7 @@ export const register: Register = on => {
           root: { type: 'string', description: 'Folder to serve, relative to the project or absolute. Default: the project root.' },
           proxy: { type: 'string', description: 'A running dev server to wrap, such as http://localhost:3000. Overrides root.' },
           page: { type: 'string', description: 'Page path to open in the review layer. Default: /' },
+          lan: { type: 'boolean', description: 'Also listen on the LAN so a phone or another machine on the same network, or over Tailscale, can open the review page. The result then includes that URL to pass on. Use when the user is on Remote Control, on a phone, or asks for a link for another device.' },
         },
       },
       isDeferred: false,
@@ -370,10 +382,10 @@ export const register: Register = on => {
   on('command.run', { command: 'markup' }, async ($, e) => {
     const cwd = await $.session.cwd()
     try {
-      const { url, opened } = await openReview($, cwd, parseArgs(e.args))
+      const { url, opened, remote } = await openReview($, cwd, parseArgs(e.args))
       return {
         text: [
-          `Review layer: ${url}${opened ? '' : ' (open it in your browser)'}`,
+          `Review layer: ${url}${opened ? '' : ' (open it in your browser)'}${remote ? `\n${remote}` : ''}`,
           'Draw with D, arrows with A, sticky notes with N. Backtick switches to editing the copy. Ctrl+/ is the TL;DR box. Cmd+Enter sends the notes to Claude.',
         ].join('\n'),
       }
@@ -386,8 +398,8 @@ export const register: Register = on => {
     const input = e as unknown as OpenOptions
     const cwd = await $.session.cwd()
     try {
-      const { url, opened } = await openReview($, cwd, { root: input.root, proxy: input.proxy, page: input.page })
-      return { result: `Review layer: ${url}${opened ? ' (opened in the browser)' : ' (open it in the browser)'}. Notes land in ${inboxOf(cwd)}. Tell the user: draw with D, arrows A, sticky notes N; backtick switches to editing copy; Ctrl+/ is the TL;DR box; Cmd+Enter sends.` }
+      const { url, opened, remote } = await openReview($, cwd, { root: input.root, proxy: input.proxy, page: input.page, lan: input.lan })
+      return { result: `Review layer: ${url}${opened ? ' (opened in the browser)' : ' (open it in the browser)'}.${remote ? ` ${remote}` : ''} Notes land in ${inboxOf(cwd)}. Tell the user: draw with D, arrows A, sticky notes N; backtick switches to editing copy; Ctrl+/ is the TL;DR box; Cmd+Enter sends.` }
     } catch (err) {
       return { deny: `markup-review: ${err instanceof Error ? err.message : String(err)}` }
     }
@@ -425,6 +437,8 @@ export const register: Register = on => {
             <Text weight="semibold">Server on port {srv.port}</Text>
             <Text dimColor wrap="truncate">{srv.target}</Text>
             <Link href={srv.url} label="Review page" />
+            {srv.lanUrl && <Link href={srv.lanUrl} label="On the LAN (phone)" />}
+            {srv.tailscaleUrl && <Link href={srv.tailscaleUrl} label="Over Tailscale" />}
             <Button key="open" label="Open in browser" onPress={() => void openBrowser($, srv.url)} />
           </Box>
         ) : (

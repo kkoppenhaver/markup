@@ -17,8 +17,10 @@ import http.client
 import json
 import os
 import re
+import shutil
 import socket
 import socketserver
+import subprocess
 import sys
 import threading
 import time
@@ -29,6 +31,29 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(os.path.dirname(HERE), "assets")
 HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "content-encoding", "content-length", "accept-encoding", "host"}
+
+
+def lan_ip():
+    """The address of the interface that routes to the LAN. No packet is sent; connecting a UDP socket only picks a route."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+def tailscale_ip():
+    exe = shutil.which("tailscale") or "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+    if not os.path.exists(exe):
+        return None
+    try:
+        out = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=2).stdout.strip().split()
+        return out[0] if out else None
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def slug(s, n=40):
@@ -77,6 +102,7 @@ class Handler(SimpleHTTPRequestHandler):
     inbox = None
     quiet = False
     watcher = None
+    lan = None     # http://<lan ip>:<port> when listening on all interfaces, else None
 
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=Handler.root, **kw)
@@ -93,7 +119,7 @@ class Handler(SimpleHTTPRequestHandler):
         if p == "/__review/review.js":
             return self.send_file(os.path.join(ASSETS, "review.js"), "application/javascript; charset=utf-8")
         if p == "/__review/ping":
-            return self.send_json({"ok": True, "inbox": Handler.inbox, "mode": "proxy" if Handler.proxy else "static"})
+            return self.send_json({"ok": True, "inbox": Handler.inbox, "mode": "proxy" if Handler.proxy else "static", "lan": Handler.lan})
         if p == "/__review/changes":
             return self.send_json({"stamp": Handler.watcher.stamp if Handler.watcher else None})
         if p == "/__review/pending":
@@ -285,6 +311,7 @@ def main():
     ap.add_argument("--proxy", default=None, help="dev server to wrap, e.g. http://localhost:3000")
     ap.add_argument("--port", type=int, default=8791)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--lan", action="store_true", help="listen on every interface so a phone on the same network (or over Tailscale) can open the page")
     ap.add_argument("--inbox", default=None, help="where notes land (default: ./.review/inbox under the current directory)")
     ap.add_argument("--path", default="/", help="page path to open in the review layer")
     ap.add_argument("--open", action="store_true", help="open the review URL in the default browser")
@@ -301,12 +328,24 @@ def main():
         Handler.watcher.start()
 
     socketserver.TCPServer.allow_reuse_address = True
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    url = "http://%s:%d/__review/?url=%s" % (args.host, args.port, urllib.parse.quote(args.path, safe=""))
+    host = "0.0.0.0" if args.lan else args.host
+    httpd = ThreadingHTTPServer((host, args.port), Handler)
+    path_q = urllib.parse.quote(args.path, safe="")
+    shown = "127.0.0.1" if host in ("0.0.0.0", "") else host
+    url = "http://%s:%d/__review/?url=%s" % (shown, args.port, path_q)
     print("markup-review")
     print("  serving : %s" % (Handler.proxy or Handler.root))
     print("  inbox   : %s" % Handler.inbox)
     print("  review  : %s" % url)
+    if host in ("0.0.0.0", ""):
+        # Plain http on purpose: tldraw treats https on a real hostname as production and wants a license key there.
+        ip = lan_ip()
+        if ip:
+            Handler.lan = "http://%s:%d" % (ip, args.port)
+            print("  lan     : %s/__review/?url=%s" % (Handler.lan, path_q))
+        ts = tailscale_ip()
+        if ts:
+            print("  tailscale: http://%s:%d/__review/?url=%s" % (ts, args.port, path_q))
     sys.stdout.flush()
     if args.open:
         webbrowser.open(url)

@@ -24,6 +24,10 @@ export type ServerInfo = {
   url: string
   target: string
   page: string
+  /** The same page over the LAN (http://<lan ip>:port/...), when the server listens on every interface. */
+  lanUrl?: string
+  /** Over Tailscale, when the tailscale CLI answered. */
+  tailscaleUrl?: string
 }
 
 declare module 'claude-code' {

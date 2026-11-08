@@ -12,6 +12,7 @@ The user marks up a live page the way they would mark up a printout: arrows, cir
 Call the `review_open` tool (listed as `mcp__markup-review__review_open`). The user can also run `/markup`.
 
 - For static files, pass `root`: the project root by default, or a built folder such as `dist`.
+- When the user is on a phone, on Remote Control, or wants a link for another device, pass `lan: true`. The server then listens on every interface and the result includes a LAN URL (and a Tailscale one when that CLI is installed) to hand over. It is plain http on purpose: tldraw treats https on a real hostname as production and stops without a license key, so do not put the page behind an https tunnel.
 - For a running dev server (Vite, Next, Astro, Rails), pass `proxy`, such as `http://localhost:3000`. Find the port from the running process or the project config. The proxy strips frame-blocking headers so the page loads inside the review frame, and passes the dev server's hot-reload websocket through. For a static root, the server watches the folder and the review page reloads the frame when a file changes, so applied notes show up on their own.
 - Pass `page` for a specific path, including a query string, such as `/pricing` or `/?theme=notebook`.
 
