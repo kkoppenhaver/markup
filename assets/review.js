@@ -130,7 +130,7 @@ function readText(el) {
   clone.querySelectorAll('[style*="line-through"]').forEach((s) => { s.replaceWith(doc.createTextNode('~~' + s.textContent + '~~')); });
   clone.querySelectorAll('br').forEach((br) => br.replaceWith(doc.createTextNode(' ¶ ')));
   clone.querySelectorAll('div, p, li, h1, h2, h3, h4, h5, h6, blockquote').forEach((b) => { b.before(doc.createTextNode(' ¶ ')); b.after(doc.createTextNode(' ¶ ')); });
-  return clone.textContent.replace(/\s+/g, ' ').replace(/(?:¶ )+¶/g, '¶').replace(/^¶ |\s¶$/g, '').trim();
+  return clone.textContent.replace(/\s+/g, ' ').trim().replace(/(?:¶ )+¶/g, '¶').replace(/^¶ | ¶$/g, '').trim();
 }
 function indexPage() {
   originals = {};
