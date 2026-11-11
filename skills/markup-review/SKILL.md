@@ -68,13 +68,13 @@ If the user says "read my notes" and no prompt has arrived, call `review_notes` 
 
 In any mode, dragging an image file onto the page, or pasting one with Cmd+V, puts it into the page as a figure at that spot. Dropped on a `[Screenshot: ...]` placeholder line, it replaces the line and takes the caption from it. Dropped on an existing image, it replaces that image. Anywhere else, it goes after the paragraph under the pointer. The caption is a text under the image; the user edits it in edit-copy mode. A paste with no position goes to the first placeholder on screen, or to the cursor in edit mode.
 
-Every placeholder shows a × in its corner. Clicking it on a placeholder from the source deletes that element (it arrives as a deleted copy edit); on a slot the user added it just removes the slot. **+ Image** in the toolbar, then a click on the page, adds an empty slot after the block under the pointer and opens the file picker; cancelling the picker leaves the slot for later. An image dropped on an added slot arrives as a figure "after" the slot's anchor, since the slot itself is not in the source.
+Every placeholder shows a × in its corner. Clicking it on a placeholder from the source deletes that element (it arrives as a deleted copy edit); on a slot the user added it just removes the slot. **+ Image** (the image button in the pill beside the drawing toolbar, or I), then a click on the page, adds an empty slot after the block under the pointer and opens the file picker; cancelling the picker leaves the slot for later. An image dropped on an added slot arrives as a figure "after" the slot's anchor, since the slot itself is not in the source.
 
 ## Shortcuts the user has
 
 - Ctrl+1 / Ctrl+2 / Ctrl+3: Draw, Edit copy, Browse. Backtick flips between Draw and Edit.
-- In Draw: D pen, A arrow, N sticky note, T text, R rectangle, E eraser, V select, Cmd+Z undo. The wheel scrolls the page.
+- In Draw: D pen, A arrow, N sticky note, T text, R rectangle, E eraser, V select, Cmd+Z undo. The wheel scrolls the page. I starts placing an image (same as the + Image button beside the toolbar).
 - In Edit copy: click into text and retype. Cmd+Shift+X strikes the selection through.
-- Ctrl+/: TL;DR box. Cmd+Enter: send to Claude. Clear all needs two clicks.
+- Ctrl+/: TL;DR box (also the last button beside the toolbar). Cmd+Enter: send to Claude. Clear all needs two clicks.
 
 Marks and edits persist per page in the browser, so a half-finished review survives a reload. A saved edit is re-applied only while the page still shows the text it was made against; once the source changes (the edit was applied, or elements were added), the stale edit is dropped on reload and the page toasts how many went.

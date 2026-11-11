@@ -2,7 +2,7 @@
 // Claude reads everything back with window.__review.get() (JSON) or window.__review.markdown().
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Tldraw, toRichText } from 'tldraw';
+import { Tldraw, toRichText, DefaultToolbar, SelectToolbarItem, DrawToolbarItem, EraserToolbarItem, ArrowToolbarItem, TextToolbarItem, NoteToolbarItem, RectangleToolbarItem } from 'tldraw';
 
 const params = new URLSearchParams(location.search);
 const targetUrl = params.get('url') || '/';
@@ -84,6 +84,7 @@ function onKey(e) {
   const typing = e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
   if (e.ctrlKey && !e.metaKey && ['1', '2', '3'].includes(e.key)) { e.preventDefault(); setMode(['draw', 'edit', 'browse'][+e.key - 1]); return; }
   if (e.ctrlKey && e.key === '/') { e.preventDefault(); toggleTldr(); return; }
+  if (e.key === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && body.dataset.mode === 'draw' && !typing) { e.preventDefault(); togglePlacing(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); return; }
   if (e.key === 'Escape' && placing) { e.preventDefault(); stopPlacing(); toast('Cancelled'); return; }
   if (e.key === '`' && !typing) { e.preventDefault(); setMode(body.dataset.mode === 'draw' ? 'edit' : 'draw'); return; }
@@ -94,7 +95,7 @@ document.addEventListener('keydown', onKey, true);
 // ---------- TL;DR ----------
 const tldr = $('#tldr'), tldrText = $('#tldrText');
 try { tldrText.value = localStorage.getItem(storeKey + ':tldr') || ''; } catch (e) {}
-function toggleTldr(force) { tldr.classList.toggle('open', force); if (tldr.classList.contains('open')) tldrText.focus(); }
+function toggleTldr(force) { tldr.classList.toggle('open', force); if (tldr.classList.contains('open')) tldrText.focus(); $('#tldrBtn').setAttribute('aria-pressed', tldr.classList.contains('open')); }
 $('#tldrBtn').addEventListener('click', () => toggleTldr());
 $('#tldrClose').addEventListener('click', () => toggleTldr(false));
 tldrText.addEventListener('keydown', onKey);
@@ -472,9 +473,10 @@ function slotRecords() { return slots.filter((x) => { const el = slotEl(x.id); r
 let placing = false;
 const fileInput = $('#fileInput');
 let pendingSlot = null;
-function startPlacing() { placing = true; body.classList.add('rv-placing'); $('#hint').textContent = 'Click where the image goes. Esc to cancel.'; }
-function stopPlacing() { placing = false; body.classList.remove('rv-placing'); setMode(body.dataset.mode); }
-$('#addBtn').addEventListener('click', () => (placing ? stopPlacing() : startPlacing()));
+function startPlacing() { placing = true; body.classList.add('rv-placing'); $('#hint').textContent = 'Click where the image goes. Esc to cancel.'; $('#addBtn').setAttribute('aria-pressed', 'true'); }
+function stopPlacing() { placing = false; body.classList.remove('rv-placing'); setMode(body.dataset.mode); $('#addBtn').setAttribute('aria-pressed', 'false'); }
+function togglePlacing() { placing ? stopPlacing() : startPlacing(); }
+$('#addBtn').addEventListener('click', togglePlacing);
 fileInput.addEventListener('change', () => {
   const files = Array.from(fileInput.files || []); const slot = pendingSlot; pendingSlot = null; fileInput.value = '';
   if (files.length && slot && doc.contains(slot)) void dropFiles(files, 0, 0, slot);
@@ -553,17 +555,40 @@ function updateCount() {
 
 const hidden = { PageMenu: null, NavigationPanel: null, MainMenu: null, HelpMenu: null, DebugMenu: null, DebugPanel: null, ActionsMenu: null, QuickActions: null, Minimap: null, ZoomMenu: null, SharePanel: null, TopPanel: null, Background: null, HelperButtons: null };
 
+// The tldraw toolbar keeps its drawing tools, minus the media tool (images go onto the page, not the canvas)
+// and the hand (the camera is locked; the wheel scrolls the page). Our two page controls, + Image and TL;DR,
+// sit in #pagetools, a pill the page positions just right of that toolbar so the whole bottom row reads as one.
+function ReviewToolbar() {
+  return React.createElement(DefaultToolbar, null,
+    React.createElement(SelectToolbarItem), React.createElement(DrawToolbarItem), React.createElement(EraserToolbarItem),
+    React.createElement(ArrowToolbarItem), React.createElement(TextToolbarItem), React.createElement(NoteToolbarItem),
+    React.createElement(RectangleToolbarItem));
+}
+function placePageTools() {
+  const bar = document.querySelector('.tlui-main-toolbar__inner'), pill = $('#pagetools');
+  if (!bar || !pill) return;
+  const r = bar.getBoundingClientRect();
+  if (!r.width) return;
+  pill.style.left = Math.round(r.right + 8) + 'px';
+  pill.style.top = Math.round(r.top + (r.height - pill.offsetHeight) / 2) + 'px';
+  pill.classList.add('placed');
+}
+window.addEventListener('resize', placePageTools);
+
 function App() {
   return React.createElement(Tldraw, {
     persistenceKey: storeKey,
     cameraOptions: { isLocked: true },
-    components: hidden,
+    components: { ...hidden, Toolbar: ReviewToolbar },
     onMount(ed) {
       editor = ed;
       ed.setCurrentTool('draw');
       ed.user.updateUserPreferences({ colorScheme: 'light' });
       ed.store.listen(() => updateCount(), { scope: 'document' });
       $('#loading').remove();
+      placePageTools();
+      const inner = document.querySelector('.tlui-main-toolbar__inner');
+      if (inner && 'ResizeObserver' in window) new ResizeObserver(placePageTools).observe(inner);
       syncCamera();
       updateCount();
       ed.getContainer().focus();

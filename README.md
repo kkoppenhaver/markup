@@ -4,7 +4,7 @@ This exact thing has happened to me so many times: I'd ask Claude Code for a lan
 
 This plugin puts a [tldraw](https://tldraw.dev) canvas over any local page so you can draw arrows, scribble notes, and retype the copy right where it sits, then, with one keystroke, you can hand all that feedback back to Claude.
 
-![The review layer over a blog post: a red arrow at a heading, a sentence struck through in the copy, a caption circled with a sticky note saying "drop this line?" beside it, an empty screenshot slot with its × control, and the TL;DR box, with + Image and Send to Claude in the toolbar](docs/review-page.png)
+![The review layer over a blog post: a red arrow at a heading, a sentence struck through in the copy, a caption circled with a sticky note saying "drop this line?" beside it, an empty screenshot slot with its × control, and the TL;DR box, with the image and TL;DR buttons beside the drawing toolbar and Send to Claude in the top bar](docs/review-page.png)
 
 ## Get it running in Claude Code
 
@@ -45,7 +45,7 @@ What you can do on the page, in one list:
 - **Retype the copy** in place, and strike words out with Cmd+Shift+X. Claude gets before and after, keyed to the element.
 - **Delete** a heading or paragraph outright. It arrives as a deletion and Claude removes it from the underlying file.
 - **Drop or paste screenshots** where they belong. They show up as figures with an editable caption, so you see the text flow around them.
-- **Fill, remove or add screenshot slots.** `[Screenshot: ...]` lines are drop zones, each with a × to remove it, and **+ Image** adds a new slot wherever you click.
+- **Fill, remove or add screenshot slots.** `[Screenshot: ...]` lines are drop zones, each with a × to remove it, and the image button beside the drawing toolbar (**+ Image**, or I) adds a new slot wherever you click.
 - **Write a TL;DR**, the one note that is about the whole page rather than a spot on it. Claude reads it first.
 - **Send with Cmd+Enter.** Everything lands as a prompt in Claude Code, and the Review pane beside the chat lists each round with a one-line summary of what changed.
 - **Keep going across reloads.** Marks, edits, slots and screenshots persist per page, the frame reloads itself when the source changes, and edits Claude has already applied are dropped rather than painted onto the wrong line.
