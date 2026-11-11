@@ -46,19 +46,20 @@ What you can do on the page, in one list:
 - **Delete** a heading or paragraph outright. It arrives as a deletion and Claude removes it from the underlying file.
 - **Drop or paste screenshots** where they belong. They show up as figures with an editable caption, so you see the text flow around them.
 - **Fill, remove or add screenshot slots.** `[Screenshot: ...]` lines are drop zones, each with a × to remove it, and the image button beside the drawing toolbar (**+ Image**, or I) adds a new slot wherever you click.
-- **Write a TL;DR**, the one note that is about the whole page rather than a spot on it. Claude reads it first.
+- **Comment on a passage.** Select text in Edit copy and press Comment, and the passage is highlighted with your comment attached, Google Docs style.
+- **Write a note**, the one note that is about the whole page rather than a spot on it. Claude reads it first.
 - **Send with Cmd+Enter.** Everything lands as a prompt in Claude Code, and the Review pane beside the chat lists each round with a one-line summary of what changed.
 - **Keep going across reloads.** Marks, edits, slots and screenshots persist per page, the frame reloads itself when the source changes, and edits Claude has already applied are dropped rather than painted onto the wrong line.
 
 The review page has three modes:
 
 - **Draw** (Ctrl+1) gives you the tldraw tools: D pen, A arrow, N sticky note, T text, R rectangle, E eraser, and V select.
-- **Edit copy** (Ctrl+2, or the backtick key) lets you click into any text and retype it. Cmd+Shift+X strikes words out.
+- **Edit copy** (Ctrl+2, or the backtick key) lets you click into any text and retype it. Cmd+Shift+X strikes words out. Select a passage and a **Comment** button appears beside it; your comment goes to Claude with the quoted passage, and the highlight stays on the page until you send.
 - **Browse** (Ctrl+3) makes the page behave normally again.
 
 When you need to add, remove or edit screenshots, your page is ready for that. Drag an image file onto the spot where it belongs, or paste one with Cmd+V, and it appears there as a figure with a caption you can edit, so you see how the text flows around it. Any `[Screenshot: ...]` placeholder line on the page shows up as a dashed drop zone that lights up while you drag; drop there to replace the line, or drop on an existing image to replace that image. Each zone has a × to remove it. **+ Image** then a click adds a new slot wherever you point, and opens the file picker; cancel it and the empty slot stays for later.
 
-For the big-picture verdict, Ctrl+/ opens the **TL;DR** box in the bottom corner. It's the place for "too much copy above the fold" or "this section is done, cut the struck sentence": a note about the page, not a spot on it. It goes at the top of what Claude receives, and the skill tells Claude to read it before touching anything.
+For the big-picture verdict, Ctrl+/ opens the **Note** box in the bottom corner. It's the place for "too much copy above the fold" or "this section is done, cut the struck sentence": a note about the page, not a spot on it. It goes at the top of what Claude receives, and the skill tells Claude to read it before touching anything. The note and the comments clear once they are sent, so the next round starts blank; edits and marks stay until the source catches up with them.
 
 ## Send it with Cmd+Enter
 
@@ -78,12 +79,14 @@ Without `--lan` the server binds to 127.0.0.1 and nothing leaves your computer.
 
 ## Notes Claude can act on
 
-Claude gets your TL;DR, each copy edit as a CSS selector with the before and after text (`~~text~~` means delete, and an element you removed outright is listed as deleted), and each mark (arrow, scribble, note, or text) with the element it points at. A pen tap a few pixels wide is reported as a dot, so Claude knows to treat it as a stray. Here's what a round looks like:
+Claude gets your note, each comment with the passage it quotes, each copy edit as a CSS selector with the before and after text (`~~text~~` means delete, and an element you removed outright is listed as deleted), and each mark (arrow, scribble, note, or text) with the element it points at. A pen tap a few pixels wide is reported as a dot, so Claude knows to treat it as a stray. Here's what a round looks like:
 
 ```
 page: /pricing
-## TL;DR
+## Note
 Too much copy above the fold. Cut the second paragraph.
+## Comments (1)
+1. on `section#hero > p:nth-of-type(1)` ("ship faster"): is this still our line, or did marketing retire it?
 ## Copy edits (1)
 - `section#hero > p:nth-of-type(2)`
   - before: We help teams ship faster with less friction.

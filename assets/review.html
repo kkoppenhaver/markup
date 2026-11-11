@@ -41,7 +41,7 @@
   body[data-mode="edit"] #canvas .tlui-layout, body[data-mode="browse"] #canvas .tlui-layout { opacity: .35; }
   body[data-mode="edit"] #page { outline: 3px solid var(--hot); outline-offset: -3px; }
   body.rv-placing #stage, body.rv-placing #canvas .tl-container, body.rv-placing #canvas .tl-canvas { cursor: crosshair !important; }
-  /* + Image and TL;DR: a pill the script parks just right of the tldraw toolbar, in tldraw's own button idiom */
+  /* + Image and Note: a pill the script parks just right of the tldraw toolbar, in tldraw's own button idiom */
   #pagetools { position: fixed; display: flex; gap: 2px; padding: 4px; background: hsl(0 0% 99%); border-radius: 11px; box-shadow: 0 0 2px hsl(0 0% 0% / .16), 0 2px 3px hsl(0 0% 0% / .24), 0 2px 6px hsl(0 0% 0% / .1), inset 0 0 0 1px #fff; z-index: 20; visibility: hidden; }
   #pagetools.placed { visibility: visible; }
   #pagetools button { width: 48px; height: 48px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #2d2d2d; cursor: pointer; padding: 0; }
@@ -50,13 +50,28 @@
   #pagetools svg { width: 20px; height: 20px; }
   body[data-mode="edit"] #pagetools, body[data-mode="browse"] #pagetools { opacity: .35; }
   body[data-mode="edit"] #tldrBtn, body[data-mode="browse"] #tldrBtn { pointer-events: all; }
-  /* TL;DR panel */
+  /* Note panel (the general note about the whole page) and the comment popover */
   #tldr { position: fixed; right: 14px; bottom: 14px; width: 360px; max-width: calc(100vw - 28px); background: var(--chrome); border: 1px solid #2a2a31; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.45); z-index: 30; display: none; flex-direction: column; overflow: hidden; }
   #tldr.open { display: flex; }
   #tldr .head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 8px 12px; border-bottom: 1px solid #2a2a31; font-weight: 600; }
   #tldr .head button { font: inherit; color: var(--dim); background: transparent; border: 0; cursor: pointer; }
   #tldr textarea { font: 14px/1.45 system-ui, sans-serif; color: var(--fg); background: transparent; border: 0; padding: 12px; min-height: 160px; resize: vertical; outline: none; }
   #tldr textarea::placeholder { color: #6b6b78; }
+  #commentBtn { position: fixed; display: none; z-index: 30; font: 600 12px system-ui, sans-serif; color: var(--ink); background: var(--hot); border: 0; border-radius: 999px; padding: 6px 10px; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.3); }
+  #commentBtn.show { display: inline-flex; align-items: center; gap: 5px; }
+  #commentBtn svg { width: 14px; height: 14px; }
+  #comment { position: fixed; display: none; flex-direction: column; width: 300px; max-width: calc(100vw - 28px); background: var(--chrome); border: 1px solid #2a2a31; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.45); z-index: 31; overflow: hidden; }
+  #comment.open { display: flex; }
+  #comment .quote { padding: 8px 12px 0; color: var(--dim); font-size: 12px; max-height: 3.9em; overflow: hidden; }
+  #comment .quote mark { background: var(--hot); color: var(--ink); border-radius: 2px; padding: 0 2px; }
+  #comment textarea { font: 14px/1.45 system-ui, sans-serif; color: var(--fg); background: transparent; border: 0; padding: 10px 12px; min-height: 84px; resize: vertical; outline: none; }
+  #comment textarea::placeholder { color: #6b6b78; }
+  #comment .foot { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid #2a2a31; }
+  #comment .foot button { font: inherit; color: var(--fg); background: var(--chrome-2); border: 0; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  #comment .foot button.primary { background: var(--hot); color: var(--ink); font-weight: 700; }
+  #comment .foot button.danger { color: #ff8a80; }
+  #comment .foot .spacer { flex: 1; }
+  #comment .foot kbd { font: 11px ui-monospace, Menlo, monospace; opacity: .6; margin-left: 5px; }
   #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--fg); color: var(--ink); padding: 8px 14px; border-radius: 999px; font-weight: 600; z-index: 40; opacity: 0; transition: opacity .2s; pointer-events: none; }
   #toast.show { opacity: 1; }
   #loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); background: #fff; z-index: 5; }
@@ -83,12 +98,18 @@
     <div id="canvas"></div>
     <div id="pagetools" role="toolbar" aria-label="Page notes">
       <button type="button" id="addBtn" title="Add image: click where it goes, then pick a file (I)" aria-label="Add image" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 5h6M19 2v6"/><path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/><circle cx="9" cy="9" r="1.8"/></svg></button>
-      <button type="button" id="tldrBtn" title="TL;DR for Claude (^/)" aria-label="TL;DR for Claude" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/><path d="M8 10h8M8 14h5"/></svg></button>
+      <button type="button" id="tldrBtn" title="Note for Claude about the whole page (^/)" aria-label="Note for Claude" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/><path d="M8 10h8M8 14h5"/></svg></button>
     </div>
   </div>
   <aside id="tldr">
-    <div class="head"><span>TL;DR for Claude</span><button type="button" id="tldrClose" aria-label="Close">✕</button></div>
-    <textarea id="tldrText" placeholder="The big-picture note. What's working, what isn't, what to do next."></textarea>
+    <div class="head"><span>Note for Claude</span><button type="button" id="tldrClose" aria-label="Close">✕</button></div>
+    <textarea id="tldrText" placeholder="A note about the whole page. What's working, what isn't, what to do next. To comment on one passage, select it in Edit copy and press Comment."></textarea>
+  </aside>
+  <button type="button" id="commentBtn" title="Comment on the selected text (⌘⌥M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></svg>Comment</button>
+  <aside id="comment" role="dialog" aria-label="Comment">
+    <div class="quote" id="commentQuote"></div>
+    <textarea id="commentText" placeholder="Your comment on this passage. Claude gets the passage and the comment."></textarea>
+    <div class="foot"><button type="button" id="commentSave" class="primary">Save<kbd>⌘↩</kbd></button><button type="button" id="commentCancel">Cancel</button><span class="spacer"></span><button type="button" id="commentRemove" class="danger" hidden>Remove</button></div>
   </aside>
   <div id="toast"></div>
   <input type="file" id="fileInput" accept="image/*" hidden>

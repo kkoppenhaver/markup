@@ -11,7 +11,10 @@ export type NoteFile = {
   marks: number
   /** Screenshots dropped onto the page; the files sit beside the notes in the inbox. */
   images: number
-  tldr: string
+  /** Comments anchored to selected passages (Google Docs style). */
+  comments: number
+  /** The general note about the whole page (was the TL;DR before 0.6). */
+  note: string
   /** One or two sentences, derived from the json: what was retyped and what was drawn. */
   summary: string
   status: NoteStatus

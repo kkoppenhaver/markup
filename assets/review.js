@@ -74,13 +74,16 @@ function setMode(mode) {
   }
   if (editor && mode === 'draw') editor.getContainer().focus();
   $('#hint').textContent = mode === 'draw' ? 'Draw, arrow, note, text. Press ` to flip between drawing and editing.'
-    : mode === 'edit' ? 'Click into any text and change it. Cmd+Shift+X strikes it through. Press ` to go back to drawing.'
+    : mode === 'edit' ? 'Click into text and retype. Select text, then Comment. Cmd+Shift+X strikes through. ` goes back to drawing.'
     : 'The page works normally. Press ` to draw again.';
+  if (mode !== 'edit') { cmtBtn.classList.remove('show'); closeCommentBox(); }
   try { localStorage.setItem(storeKey + ':mode', mode); } catch (e) {}
 }
 document.querySelectorAll('#bar .modes button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
 function onKey(e) {
+  if (e.target === cmtText) return; // the comment box handles its own keys
+  if (e.key === 'Escape' && cmtBox.classList.contains('open')) { e.preventDefault(); closeCommentBox(); return; }
   const typing = e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
   if (e.ctrlKey && !e.metaKey && ['1', '2', '3'].includes(e.key)) { e.preventDefault(); setMode(['draw', 'edit', 'browse'][+e.key - 1]); return; }
   if (e.ctrlKey && e.key === '/') { e.preventDefault(); toggleTldr(); return; }
@@ -88,6 +91,7 @@ function onKey(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); return; }
   if (e.key === 'Escape' && placing) { e.preventDefault(); stopPlacing(); toast('Cancelled'); return; }
   if (e.key === '`' && !typing) { e.preventDefault(); setMode(body.dataset.mode === 'draw' ? 'edit' : 'draw'); return; }
+  if ((e.metaKey || e.ctrlKey) && e.altKey && e.code === 'KeyM' && body.dataset.mode === 'edit') { e.preventDefault(); onSelectionChange(); startComment(); return; }
   if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 'x' && doc && body.dataset.mode === 'edit') { e.preventDefault(); doc.execCommand('strikeThrough'); }
 }
 document.addEventListener('keydown', onKey, true);
@@ -100,6 +104,138 @@ $('#tldrBtn').addEventListener('click', () => toggleTldr());
 $('#tldrClose').addEventListener('click', () => toggleTldr(false));
 tldrText.addEventListener('keydown', onKey);
 tldrText.addEventListener('input', () => { try { localStorage.setItem(storeKey + ':tldr', tldrText.value); } catch (e) {} updateCount(); });
+
+// ---------- comments ----------
+// A comment hangs off a run of text the reviewer selected in Edit copy mode, Google Docs style. The run is wrapped
+// in <mark data-rv-comment=id>, and Claude receives the element, the quoted passage and the comment. Marks carry
+// no text of their own, so readText() and the edit detection ignore them.
+let comments = [];
+try { const raw = JSON.parse(localStorage.getItem(storeKey + ':comments') || '[]'); if (Array.isArray(raw)) comments = raw.filter((c) => c && c.id && c.selector && typeof c.quote === 'string'); } catch (e) {}
+function saveComments() { try { localStorage.setItem(storeKey + ':comments', JSON.stringify(comments)); } catch (e) {} }
+const COMMENT_CSS = 'mark[data-rv-comment]{background:#ffe08a;color:inherit;border-radius:2px;box-shadow:inset 0 0 0 1px #f0c24a;cursor:pointer}mark[data-rv-comment].rv-active{background:#ffc83d}';
+const cmtBtn = $('#commentBtn'), cmtBox = $('#comment'), cmtText = $('#commentText'), cmtQuote = $('#commentQuote');
+let cmtRange = null;   // the selection the Comment button was shown for, cloned so it survives the focus change
+let cmtEditing = null; // id of the comment the popover is editing, or null for a new one
+function norm(t) { return (t || '').replace(/\s+/g, ' ').trim(); }
+function escapeRe(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function textNodesUnder(root) { const w = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT); const out = []; let n; while ((n = w.nextNode())) out.push(n); return out; }
+// Wrap exactly the selected text: split the boundary text nodes, then put each text node in the range inside its own mark.
+function wrapRange(range, id) {
+  const sc = range.startContainer, so = range.startOffset, ec = range.endContainer, eo = range.endOffset;
+  if (ec.nodeType === 3 && eo < ec.length) ec.splitText(eo);
+  if (sc.nodeType === 3 && so > 0) { const tail = sc.splitText(so); if (ec === sc) range.setEnd(tail, tail.length); range.setStart(tail, 0); }
+  const root = range.commonAncestorContainer.nodeType === 3 ? range.commonAncestorContainer.parentNode : range.commonAncestorContainer;
+  textNodesUnder(root).forEach((n) => {
+    if (!range.intersectsNode(n) || !n.textContent.trim()) return;
+    if (n.parentElement && n.parentElement.closest('mark[data-rv-comment]')) return;
+    const m = doc.createElement('mark'); m.setAttribute('data-rv-comment', id); n.parentNode.insertBefore(m, n); m.appendChild(n);
+  });
+}
+function unwrapComment(id) {
+  doc.querySelectorAll('mark[data-rv-comment="' + id + '"]').forEach((m) => { const p = m.parentNode; while (m.firstChild) p.insertBefore(m.firstChild, m); m.remove(); p.normalize(); });
+}
+function anchorElOf(range) {
+  const start = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer;
+  return start && start.closest('[data-rv]');
+}
+// Find `quote` inside `el` as a DOM range, tolerant of whitespace differences.
+function rangeOfText(el, quote) {
+  const nodes = textNodesUnder(el); if (!nodes.length) return null;
+  const full = nodes.map((n) => n.textContent).join('');
+  const re = new RegExp(quote.trim().split(/\s+/).map(escapeRe).join('\\s+'));
+  const m = re.exec(full); if (!m) return null;
+  const at = (pos, end) => { let acc = 0; for (const n of nodes) { const len = n.textContent.length; if (pos < acc + len || (end && pos === acc + len)) return [n, pos - acc]; acc += len; } const last = nodes[nodes.length - 1]; return [last, last.textContent.length]; };
+  const r = doc.createRange(); const [sn, so] = at(m.index, false); const [en, eo] = at(m.index + m[0].length, true); r.setStart(sn, so); r.setEnd(en, eo); return r;
+}
+function restoreComments() {
+  if (!doc.getElementById('rv-comment-css')) { const st = doc.createElement('style'); st.id = 'rv-comment-css'; st.textContent = COMMENT_CSS; doc.head.appendChild(st); }
+  let lost = 0;
+  comments = comments.filter((c) => {
+    if (doc.querySelector('mark[data-rv-comment="' + c.id + '"]')) return true; // came back inside a restored edit
+    const id = Object.keys(originals).find((k) => originals[k].selector === c.selector);
+    const el = id !== undefined && doc.querySelector('[data-rv="' + id + '"]');
+    const r = el && rangeOfText(el, c.quote);
+    if (!r) { lost++; return false; }
+    wrapRange(r, c.id); return true;
+  });
+  if (lost) { saveComments(); setTimeout(() => toast(lost + (lost === 1 ? ' comment' : ' comments') + ' lost the text it was on, dropped'), 300); }
+}
+function commentRecords() {
+  if (!doc) return [];
+  return comments.filter((c) => doc.querySelector('mark[data-rv-comment="' + c.id + '"]')).map((c) => ({ id: c.id, selector: c.selector, quote: c.quote, text: c.text }));
+}
+function placeNear(el, rect) {
+  const ir = iframe.getBoundingClientRect();
+  const x = Math.min(Math.max(8, ir.left + rect.right + 6), window.innerWidth - el.offsetWidth - 8);
+  const y = Math.min(Math.max(8, ir.top + rect.top - el.offsetHeight - 6), window.innerHeight - el.offsetHeight - 8);
+  el.style.left = x + 'px'; el.style.top = y + 'px';
+}
+function onSelectionChange() {
+  if (!doc || body.dataset.mode !== 'edit' || cmtBox.classList.contains('open')) { cmtBtn.classList.remove('show'); return; }
+  const sel = doc.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !norm(sel.toString())) { cmtBtn.classList.remove('show'); cmtRange = null; return; }
+  cmtRange = sel.getRangeAt(0).cloneRange();
+  cmtBtn.classList.add('show');
+  placeNear(cmtBtn, cmtRange.getBoundingClientRect());
+}
+function openCommentBox(rect) {
+  cmtBox.classList.add('open'); cmtBtn.classList.remove('show');
+  $('#commentRemove').hidden = !cmtEditing;
+  placeNear(cmtBox, rect); cmtText.focus();
+}
+function closeCommentBox() {
+  cmtBox.classList.remove('open'); cmtText.value = ''; cmtEditing = null;
+  if (doc) doc.querySelectorAll('mark.rv-active').forEach((m) => m.classList.remove('rv-active'));
+}
+function startComment() {
+  if (!cmtRange || !norm(cmtRange.toString())) { toast('Select some text first'); return; }
+  cmtEditing = null; cmtText.value = '';
+  cmtQuote.innerHTML = ''; const q = document.createElement('mark'); q.textContent = norm(cmtRange.toString()).slice(0, 160); cmtQuote.appendChild(q);
+  openCommentBox(cmtRange.getBoundingClientRect());
+}
+function editComment(id, rect) {
+  const c = comments.find((x) => x.id === id); if (!c) return;
+  cmtEditing = id; cmtText.value = c.text || '';
+  cmtQuote.innerHTML = ''; const q = document.createElement('mark'); q.textContent = c.quote.slice(0, 160); cmtQuote.appendChild(q);
+  doc.querySelectorAll('mark[data-rv-comment="' + id + '"]').forEach((m) => m.classList.add('rv-active'));
+  openCommentBox(rect);
+}
+function saveComment() {
+  const text = cmtText.value.trim();
+  if (cmtEditing) {
+    const c = comments.find((x) => x.id === cmtEditing);
+    if (!text) { removeComment(cmtEditing); return; }
+    if (c) c.text = text;
+  } else {
+    if (!text) { closeCommentBox(); return; }
+    if (!cmtRange) { toast('The selection went away'); closeCommentBox(); return; }
+    const el = anchorElOf(cmtRange); const oid = el && el.getAttribute('data-rv');
+    if (!el || !originals[oid]) { toast('Select text inside the page copy'); closeCommentBox(); return; }
+    const id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const quote = norm(cmtRange.toString());
+    wrapRange(cmtRange, id);
+    comments.push({ id, selector: originals[oid].selector, quote, text });
+    const sel = doc.getSelection(); if (sel) sel.removeAllRanges();
+    cmtRange = null;
+  }
+  saveComments(); recordEdits(); closeCommentBox(); updateCount(); toast('Comment saved');
+}
+function removeComment(id) {
+  unwrapComment(id);
+  comments = comments.filter((c) => c.id !== id);
+  saveComments(); recordEdits(); closeCommentBox(); updateCount();
+}
+function clearComments() { if (doc) comments.forEach((c) => unwrapComment(c.id)); comments = []; saveComments(); recordEdits(); updateCount(); }
+cmtBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); }); // keep the page selection alive
+cmtBtn.addEventListener('click', startComment);
+$('#commentSave').addEventListener('click', saveComment);
+$('#commentCancel').addEventListener('click', closeCommentBox);
+$('#commentRemove').addEventListener('click', () => { if (cmtEditing) removeComment(cmtEditing); });
+cmtText.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); saveComment(); return; }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCommentBox(); return; }
+  e.stopPropagation();
+}, true);
 
 // ---------- toast ----------
 let toastTimer;
@@ -164,7 +300,11 @@ function onPageLoad() {
   const lift = doc.createElement('style'); lift.textContent = '.switcher{bottom:74px !important} html{scroll-behavior:auto !important}'; doc.head.appendChild(lift);
   indexPage();
   restoreSlots();
+  restoreComments();
   markDropZones();
+  doc.addEventListener('selectionchange', onSelectionChange);
+  doc.addEventListener('pointerdown', (e) => { const m = e.target && e.target.closest && e.target.closest('mark[data-rv-comment]'); if (m && body.dataset.mode !== 'draw') { e.preventDefault(); editComment(m.getAttribute('data-rv-comment'), m.getBoundingClientRect()); } }, true);
+  win.addEventListener('scroll', () => { cmtBtn.classList.remove('show'); }, { passive: true });
   doc.addEventListener('input', () => { lastInput = Date.now(); recordEdits(); });
   doc.addEventListener('keydown', onKey, true);
   doc.addEventListener('pointerdown', (e) => onPointerDown(e, e.clientX, e.clientY), true);
@@ -553,7 +693,7 @@ function syncCamera() {
 }
 function updateCount() {
   if (doc) pruneImages();
-  const n = (editor ? editor.getCurrentPageShapeIds().size : 0) + edits().length + images.length + slotRecords().length + (tldrText.value.trim() ? 1 : 0);
+  const n = (editor ? editor.getCurrentPageShapeIds().size : 0) + edits().length + images.length + slotRecords().length + commentRecords().length + (tldrText.value.trim() ? 1 : 0);
   $('#count').textContent = n;
 }
 
@@ -615,7 +755,12 @@ function markdown() {
   const d = get();
   const L = [];
   L.push('# Review notes for ' + d.url, '');
-  if (d.tldr) L.push('## TL;DR', '', d.tldr, '');
+  if (d.note) L.push('## Note', '', d.note, '');
+  if (d.comments.length) {
+    L.push('## Comments (' + d.comments.length + ')', '');
+    d.comments.forEach((c, i) => L.push((i + 1) + '. on `' + c.selector + '` ("' + c.quote + '"): ' + c.text));
+    L.push('');
+  }
   if (d.edits.length) {
     L.push('## Copy edits (' + d.edits.length + ')', '');
     d.edits.forEach((e) => L.push('- `' + e.selector + '`', '  - before: ' + e.before, e.deleted ? '  - deleted: the whole element is gone from the page' : '  - after: ' + e.after));
@@ -645,7 +790,7 @@ function markdown() {
     d.slots.forEach((x, i) => L.push((i + 1) + '. after `' + x.anchor.selector + '` ("' + x.anchor.text.slice(0, 60) + '"): ' + x.text));
     L.push('');
   }
-  if (!d.tldr && !d.edits.length && !d.marks.length && !d.images.length && !d.slots.length) L.push('_No notes yet._');
+  if (!d.note && !d.comments.length && !d.edits.length && !d.marks.length && !d.images.length && !d.slots.length) L.push('_No notes yet._');
   return L.join('\n');
 }
 function imageRecords() {
@@ -653,7 +798,7 @@ function imageRecords() {
   return images.map((r) => ({ id: r.id, name: r.name, type: r.type, w: r.w, h: r.h, dpr: r.dpr, alt: r.alt, caption: captionOf(r), anchor: r.anchor, place: r.place }));
 }
 function get() {
-  return { url: targetUrl, mode: body.dataset.mode, tldr: tldrText.value.trim(), edits: edits(), marks: marks(), images: imageRecords(), slots: slotRecords(), scrollY: win ? win.scrollY : 0 };
+  return { url: targetUrl, mode: body.dataset.mode, note: tldrText.value.trim(), comments: commentRecords(), edits: edits(), marks: marks(), images: imageRecords(), slots: slotRecords(), scrollY: win ? win.scrollY : 0 };
 }
 async function png() {
   if (!editor) return null;
@@ -663,10 +808,10 @@ async function png() {
 }
 async function clearAll() {
   if (editor) editor.deleteShapes(Array.from(editor.getCurrentPageShapeIds()));
-  savedEdits = {}; tldrText.value = '';
+  savedEdits = {}; tldrText.value = ''; comments = []; closeCommentBox();
   images.forEach(unmountImage); images = []; slots = [];
   try { await idb.set(storeKey, []); } catch (e) {}
-  try { localStorage.removeItem(storeKey + ':edits'); localStorage.removeItem(storeKey + ':tldr'); localStorage.removeItem(storeKey + ':slots'); } catch (e) {}
+  try { localStorage.removeItem(storeKey + ':edits'); localStorage.removeItem(storeKey + ':tldr'); localStorage.removeItem(storeKey + ':slots'); localStorage.removeItem(storeKey + ':comments'); } catch (e) {}
   iframe.contentWindow.location.reload();
   toast('Cleared');
 }
@@ -682,7 +827,7 @@ let sending = false;
 async function send() {
   if (sending) return;
   const d = get();
-  if (!d.tldr && !d.edits.length && !d.marks.length && !d.images.length && !d.slots.length) { toast('Nothing to send yet'); return; }
+  if (!d.note && !d.comments.length && !d.edits.length && !d.marks.length && !d.images.length && !d.slots.length) { toast('Nothing to send yet'); return; }
   sending = true; const btn = $('#sendBtn'); btn.disabled = true; btn.firstChild.textContent = 'Sending';
   try {
     const image = await png();
@@ -691,10 +836,11 @@ async function send() {
     const j = await res.json();
     toast('Sent to Claude: ' + (j.path || '').split('/').pop());
     try { localStorage.setItem(storeKey + ':sent', new Date().toISOString()); } catch (e) {}
-    // The TL;DR is a note for this send. Once delivered, clear it so the next round starts blank instead of
-    // repeating it; edits and marks stay until the source catches up with them.
-    tldrText.value = ''; toggleTldr(false); updateCount();
+    // The note and the comments are for this send. Once delivered, clear them so the next round starts blank
+    // instead of repeating them; edits and marks stay until the source catches up with them.
+    tldrText.value = ''; toggleTldr(false);
     try { localStorage.removeItem(storeKey + ':tldr'); } catch (e) {}
+    clearComments();
   } catch (err) {
     toast('Send failed. Is the review server running? (' + err.message + ')');
   } finally {
@@ -703,5 +849,5 @@ async function send() {
 }
 $('#sendBtn').addEventListener('click', send);
 
-window.__review = { get, markdown, png, send, clear: clearAll, setMode, placeFile, removeImage, addSlotAfter, removeSlot, startPlacing, images: () => images, slots: () => slots, scrollTo: (y) => win && win.scrollTo({ top: y, behavior: 'instant' }), get editor() { return editor; }, toRichText };
+window.__review = { get, markdown, png, send, clear: clearAll, setMode, placeFile, removeImage, addSlotAfter, removeSlot, startPlacing, startComment, removeComment, images: () => images, slots: () => slots, comments: () => comments, scrollTo: (y) => win && win.scrollTo({ top: y, behavior: 'instant' }), get editor() { return editor; }, toRichText };
 try { const m = localStorage.getItem(storeKey + ':mode'); if (m) setMode(m); } catch (e) {}

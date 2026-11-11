@@ -5,7 +5,7 @@ description: Let the user review a web page by drawing on it and retyping its co
 
 # Markup review
 
-The user marks up a live page the way they would mark up a printout: arrows, circles, sticky notes, retyped sentences, strike-throughs, and one TL;DR. They press Cmd+Enter in the browser and the notes arrive here as a prompt from the markup-review mod, with the file paths. Your job is to open the layer when asked, then apply what comes back.
+The user marks up a live page the way they would mark up a printout: arrows, circles, sticky notes, retyped sentences, strike-throughs, comments pinned to selected passages, and one note about the whole page. They press Cmd+Enter in the browser and the notes arrive here as a prompt from the markup-review mod, with the file paths. Your job is to open the layer when asked, then apply what comes back.
 
 ## Open the review layer
 
@@ -20,7 +20,7 @@ Call the `review_open` tool (listed as `mcp__markup-review__review_open`). The u
 
 The tool starts the bundled Python server from the project directory (notes land in `.review/inbox/` there), reuses a server that is already running for this project, opens the URL in the browser, and shows a Review pane. Add `.review/` to `.gitignore` if the project is a git repo and the line is missing.
 
-Tell the user in two lines how it works: draw with the tldraw tools, backtick switches to editing the copy, Ctrl+/ is the TL;DR box, Cmd+Enter sends.
+Tell the user in two lines how it works: draw with the tldraw tools, backtick switches to editing the copy (select text there and press Comment to pin a comment to it), Ctrl+/ is the note box, Cmd+Enter sends.
 
 If the mod is not loaded (no `review_open` tool), fall back to running the server by hand from the project root and watching the inbox with the Monitor tool:
 
@@ -40,7 +40,9 @@ json: 20261102-011409-index.json
 marks_png: 20261102-011409-index.png
 
 # Review notes for /?theme=notebook
-## TL;DR
+## Note
+## Comments (n)
+1. on `selector` ("the passage selected"): the comment
 ## Copy edits (n)
 - `selector`
   - before: ...
@@ -54,7 +56,7 @@ marks_png: 20261102-011409-index.png
 Do this, in order:
 
 1. View the `.png` with Read. It holds the strokes themselves, which carry meaning the text cannot (what was circled, how hard it was crossed out). If the Chrome extension is connected, also screenshot the review tab for the page underneath.
-2. The TL;DR is the verdict. Let it set the direction before touching anything.
+2. The note is the verdict. Let it set the direction before touching anything. Then take each comment: it quotes the passage it is about and names the element. A comment can be an instruction ("tighten this"), a question ("is this still true?") or a reaction. Act on instructions in the source, answer questions in your reply, and say in one line what you did with each. Comments and the note clear from the page once sent, so do not expect to see them again next round.
 3. Apply each copy edit to the source, not to the served HTML. `~~text~~` in an "after" means delete that text. `¶` in an "after" means the user pressed Enter there: split the paragraph at that point. An edit with `deleted:` instead of `after:` means the user removed that whole element (a heading, a paragraph, a list item): take it out of the source. Keep the user's words exactly; do not improve them.
 4. Act on each mark. A `dot` is a pen tap a few pixels wide with no text, almost always accidental: skip it and say so. An arrow or circle with no text means "look here"; use the anchor's selector and the screenshot to work out what is wrong, and if it is not clear, ask about that one mark rather than guessing. A sticky note or text shape is an instruction.
 5. Place each image. A `## Images` section lists screenshots the user dropped or pasted onto the page, one file each in the inbox, with where it went (replacing a `[Screenshot: ...]` placeholder, replacing an existing image, or after an element), the caption they typed, and alt text. The inbox is not the destination: move the file into the project's media folder with a name taken from the page and anchor, resize it to the site's convention (a 2x-screen capture is twice the size it should display at), and put a figure with that caption and alt where the notes say, removing the placeholder. Match the figure markup the site already uses.
@@ -75,6 +77,7 @@ Every placeholder shows a × in its corner. Clicking it on a placeholder from th
 - Ctrl+1 / Ctrl+2 / Ctrl+3: Draw, Edit copy, Browse. Backtick flips between Draw and Edit.
 - In Draw: D pen, A arrow, N sticky note, T text, R rectangle, E eraser, V select, Cmd+Z undo. The wheel scrolls the page. I starts placing an image (same as the + Image button beside the toolbar).
 - In Edit copy: click into text and retype. Cmd+Shift+X strikes the selection through.
-- Ctrl+/: TL;DR box (also the last button beside the toolbar). Cmd+Enter: send to Claude. Clear all needs two clicks.
+- In Edit copy: select text and press the Comment button that appears (or Cmd+Option+M) to pin a comment to that passage. Click a highlighted passage to edit or remove its comment.
+- Ctrl+/: note box for the whole page (also the last button beside the toolbar). Cmd+Enter: send to Claude. Clear all needs two clicks.
 
 Marks and edits persist per page in the browser, so a half-finished review survives a reload. A saved edit is re-applied only while the page still shows the text it was made against; once the source changes (the edit was applied, or elements were added), the stale edit is dropped on reload and the page toasts how many went.

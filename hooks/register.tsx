@@ -93,16 +93,18 @@ async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> 
   let edits = 0
   let marks = 0
   let images = 0
-  let tldr = ''
+  let comments = 0
+  let note = ''
   let summary = ''
   const jsonName = field(text, 'json')
   if (jsonName && (await $.fs.exists(`${inbox}/${jsonName}`))) {
     try {
-      const data = JSON.parse(await $.fs.read(`${inbox}/${jsonName}`)) as { edits?: Edit[]; marks?: Mark[]; images?: Placed[]; slots?: Slot[]; tldr?: string }
+      const data = JSON.parse(await $.fs.read(`${inbox}/${jsonName}`)) as { edits?: Edit[]; marks?: Mark[]; images?: Placed[]; slots?: Slot[]; comments?: unknown[]; note?: string; tldr?: string }
       edits = (data.edits ?? []).length
       marks = (data.marks ?? []).length
       images = (data.images ?? []).length
-      tldr = String(data.tldr ?? '').trim()
+      comments = (data.comments ?? []).length
+      note = String(data.note ?? data.tldr ?? '').trim()
       summary = summarize(data.edits ?? [], data.marks ?? [], data.images ?? [], data.slots ?? [])
     } catch {
       // a half-written json file: counts stay at zero, the markdown still carries everything
@@ -118,7 +120,8 @@ async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> 
     edits,
     marks,
     images,
-    tldr,
+    comments,
+    note,
     summary,
     status: 'new',
     text,
@@ -155,7 +158,7 @@ function promptFor(arrived: NoteFile[]): string {
   })
   const withImages = arrived.some(n => n.images > 0)
   return [
-    `Review notes arrived from the markup-review page. The user sent them from the browser with Cmd+Enter. Apply them now, following the markup-review skill: read the TL;DR first, apply each copy edit to the source exactly as written (~~text~~ means delete that text), act on each mark using its anchor,${withImages ? ' place each image (move the file out of the inbox into the project\'s media folder, resize to the site\'s convention, and put a figure with the given caption and alt where the notes say),' : ''} reply with one line per note in the order given, and do not delete inbox files or clear the canvas.`,
+    `Review notes arrived from the markup-review page. The user sent them from the browser with Cmd+Enter. Apply them now, following the markup-review skill: read the note first, answer or act on each comment (each quotes the passage it is about), apply each copy edit to the source exactly as written (~~text~~ means delete that text), act on each mark using its anchor,${withImages ? ' place each image (move the file out of the inbox into the project\'s media folder, resize to the site\'s convention, and put a figure with the given caption and alt where the notes say),' : ''} reply with one line per note in the order given, and do not delete inbox files or clear the canvas.`,
     '',
     ...parts,
   ].join('\n')
@@ -290,7 +293,7 @@ function handoffPrompt(lan: boolean): string {
     '- If this conversation just built, edited, previewed or discussed a specific page, open that page: set `root` to the folder that serves it (for a static site, the folder the page\'s URL paths are relative to, such as `site` or `dist`; never the project root when the pages live in a subfolder) or `proxy` to the dev server that is already running, and `page` to the page\'s path.',
     '- Otherwise do not guess. Use the AskUserQuestion tool to ask which folder or dev server to serve and which page to open, offering the likely candidates you can see in the project (a `site`, `dist`, `public` or `build` folder; a dev server from the project config), then call review_open with the answer.',
     lan ? '- The user passed --lan, so pass `lan: true` and hand over the LAN URL from the result.' : '',
-    'Then tell the user in two lines how the layer works: draw with D, arrows A, sticky notes N; backtick switches to editing the copy; Ctrl+/ is the TL;DR box; Cmd+Enter sends.',
+    'Then tell the user in two lines how the layer works: draw with D, arrows A, sticky notes N; backtick switches to editing the copy, where selecting text and pressing Comment attaches a comment to it; Ctrl+/ is the note box; Cmd+Enter sends.',
   ].filter(Boolean).join('\n')
 }
 
@@ -351,7 +354,7 @@ async function poll($: Eng, cwd: string, watch: Watch) {
     }
     await update($, notes, list => [...arrived, ...list].slice(0, 50))
     const summary = arrived
-      .map(a => `${a.edits} edit${a.edits === 1 ? '' : 's'}, ${a.marks} mark${a.marks === 1 ? '' : 's'}${a.images ? `, ${a.images} image${a.images === 1 ? '' : 's'}` : ''}${a.tldr ? `, "${a.tldr.slice(0, 70)}${a.tldr.length > 70 ? '…' : ''}"` : ''}`)
+      .map(a => `${a.edits} edit${a.edits === 1 ? '' : 's'}, ${a.marks} mark${a.marks === 1 ? '' : 's'}${a.images ? `, ${a.images} image${a.images === 1 ? '' : 's'}` : ''}${a.comments ? `, ${a.comments} comment${a.comments === 1 ? '' : 's'}` : ''}${a.note ? `, "${a.note.slice(0, 70)}${a.note.length > 70 ? '…' : ''}"` : ''}`)
       .join('; ')
     $.ui.toast(`Review notes: ${summary}`)
     $.ui.status(`review: applying ${arrived.length} note file${arrived.length === 1 ? '' : 's'}`)
@@ -388,7 +391,7 @@ export const register: Register = on => {
     })
     await $.tool.register({
       name: 'review_notes',
-      description: 'List the review notes files in this project\'s .review/inbox with their TL;DR and counts, newest first. Use when the user says "read my notes" and you need the latest file paths.',
+      description: 'List the review notes files in this project\'s .review/inbox with their note and counts, newest first. Use when the user says "read my notes" and you need the latest file paths.',
       inputSchema: { type: 'object', properties: {} },
       isDeferred: false,
     })
@@ -426,7 +429,7 @@ export const register: Register = on => {
       return {
         text: [
           `Review layer: ${url}${opened ? '' : ' (open it in your browser)'}${remote ? `\n${remote}` : ''}`,
-          'Draw with D, arrows with A, sticky notes with N. Backtick switches to editing the copy. Ctrl+/ is the TL;DR box. Cmd+Enter sends the notes to Claude.',
+          'Draw with D, arrows with A, sticky notes with N. Backtick switches to editing the copy; select text there and press Comment to attach a comment. Ctrl+/ is the note box. Cmd+Enter sends the notes to Claude.',
         ].join('\n'),
       }
     } catch (err) {
@@ -449,7 +452,7 @@ export const register: Register = on => {
     const list = await read($, notes)
     const inbox = inboxOf(await $.session.cwd())
     if (list.length === 0) return { result: `No review notes yet. Inbox: ${inbox}` }
-    const lines = list.map(n => `${n.sentAt} ${n.page} [${n.status}] ${n.edits} edits, ${n.marks} marks${n.images ? `, ${n.images} images` : ''}${n.tldr ? ` TL;DR: ${n.tldr}` : ''}${n.summary ? `\n  ${n.summary}` : ''}\n  file: ${n.path}${n.pngPath ? `\n  png: ${n.pngPath}` : ''}`)
+    const lines = list.map(n => `${n.sentAt} ${n.page} [${n.status}] ${n.edits} edits, ${n.marks} marks${n.images ? `, ${n.images} images` : ''}${n.comments ? `, ${n.comments} comments` : ''}${n.note ? ` Note: ${n.note}` : ''}${n.summary ? `\n  ${n.summary}` : ''}\n  file: ${n.path}${n.pngPath ? `\n  png: ${n.pngPath}` : ''}`)
     return { result: `Inbox: ${inbox}\n\n${lines.join('\n')}` }
   })
 
@@ -494,9 +497,9 @@ export const register: Register = on => {
               {n.sentAt.slice(11, 16) || '--:--'} {n.page}
             </Text>
             <Text dimColor>
-              {n.edits} edits, {n.marks} marks{n.images ? `, ${n.images} images` : ''}, {n.status}
+              {n.edits} edits, {n.marks} marks{n.images ? `, ${n.images} images` : ''}{n.comments ? `, ${n.comments} comments` : ''}, {n.status}
             </Text>
-            {n.tldr ? <Text italic wrap="truncate">{n.tldr}</Text> : null}
+            {n.note ? <Text italic wrap="truncate">{n.note}</Text> : null}
             {n.summary ? <Text dimColor wrap="wrap">{n.summary}</Text> : null}
           </Box>
         ))}
