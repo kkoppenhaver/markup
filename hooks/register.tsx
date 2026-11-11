@@ -417,9 +417,9 @@ export const register: Register = on => {
     const opts = parseArgs(e.args)
     if (!opts.root && !opts.proxy && !opts.page) {
       // No target named. Serving the project root gives a directory listing, which is never what the user
-      // wanted. Hand the choice to Claude, which knows what page the conversation was just about.
-      void $.prompt.submit({ text: handoffPrompt(!!opts.lan) })
-      return { text: 'No page named. Asking Claude to open the page you were just working on, or to ask you which one.' }
+      // wanted. Hand the choice to Claude, which knows what page the conversation was just about: `context`
+      // is the note a command leaves the model, read as a hidden user message after the output row.
+      return { text: 'No page named. Asking Claude to open the page you were just working on, or to ask you which one.', context: [handoffPrompt(!!opts.lan)] }
     }
     try {
       const { url, opened, remote } = await openReview($, cwd, opts)
