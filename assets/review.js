@@ -295,6 +295,14 @@ function indexPage() {
     setTimeout(() => toast(dropped + (dropped === 1 ? ' edit' : ' edits') + ' already in the source, dropped'), 300);
   }
 }
+function restoreScroll() {
+  let y = 0; try { y = parseInt(localStorage.getItem(storeKey + ':scroll') || '0', 10) || 0; } catch (e) {}
+  if (!y || !win) return;
+  const go = () => { if (win && Math.abs(win.scrollY - y) > 2) win.scrollTo({ top: y, behavior: 'instant' }); };
+  go();
+  // Images and placed screenshots load after the page does and push the text down; take the same spot again once they have.
+  setTimeout(go, 150); setTimeout(go, 600);
+}
 function onPageLoad() {
   doc = iframe.contentDocument; win = iframe.contentWindow;
   const lift = doc.createElement('style'); lift.textContent = '.switcher{bottom:74px !important} html{scroll-behavior:auto !important}'; doc.head.appendChild(lift);
@@ -315,6 +323,9 @@ function onPageLoad() {
   doc.addEventListener('paste', (e) => { const files = imageFiles(e.clipboardData); if (!files.length) return; e.preventDefault(); e.stopImmediatePropagation(); void pasteFiles(files); }, true);
   void restoreImages();
   win.addEventListener('scroll', syncCamera, { passive: true });
+  // Remember where the reviewer was, so a reload (hot reload after Claude applies notes, or a plain refresh) lands on the same spot.
+  win.addEventListener('scroll', () => { try { localStorage.setItem(storeKey + ':scroll', String(win.scrollY)); } catch (e) {} }, { passive: true });
+  restoreScroll();
   // Inside the page, Tab would leave the frame; harmless. Links open in the frame, which is fine for review.
   setMode(body.dataset.mode);
   syncCamera();
