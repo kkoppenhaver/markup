@@ -103,6 +103,7 @@ class Handler(SimpleHTTPRequestHandler):
     quiet = False
     watcher = None
     lan = None     # http://<lan ip>:<port> when listening on all interfaces, else None
+    httpd = None   # set in main(); /__review/quit shuts it down
 
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=Handler.root, **kw)
@@ -119,7 +120,7 @@ class Handler(SimpleHTTPRequestHandler):
         if p == "/__review/review.js":
             return self.send_file(os.path.join(ASSETS, "review.js"), "application/javascript; charset=utf-8")
         if p == "/__review/ping":
-            return self.send_json({"ok": True, "inbox": Handler.inbox, "mode": "proxy" if Handler.proxy else "static", "lan": Handler.lan})
+            return self.send_json({"ok": True, "inbox": Handler.inbox, "mode": "proxy" if Handler.proxy else "static", "target": Handler.proxy or Handler.root, "lan": Handler.lan})
         if p == "/__review/changes":
             return self.send_json({"stamp": Handler.watcher.stamp if Handler.watcher else None})
         if p == "/__review/pending":
@@ -143,6 +144,14 @@ class Handler(SimpleHTTPRequestHandler):
         p = urllib.parse.urlsplit(self.path).path
         if p == "/__review/send":
             return self.receive_notes()
+        if p == "/__review/quit":
+            # The mod asks a server that serves the wrong folder for this project to step aside so it can
+            # start one on the same port with the right one. Shut down from another thread; serve_forever
+            # returns and main() exits.
+            self.send_json({"ok": True})
+            if Handler.httpd:
+                threading.Thread(target=Handler.httpd.shutdown, daemon=True).start()
+            return
         if Handler.proxy:
             return self.forward()
         self.send_error(405)
@@ -330,6 +339,7 @@ def main():
     socketserver.TCPServer.allow_reuse_address = True
     host = "0.0.0.0" if args.lan else args.host
     httpd = ThreadingHTTPServer((host, args.port), Handler)
+    Handler.httpd = httpd
     path_q = urllib.parse.quote(args.path, safe="")
     shown = "127.0.0.1" if host in ("0.0.0.0", "") else host
     url = "http://%s:%d/__review/?url=%s" % (shown, args.port, path_q)

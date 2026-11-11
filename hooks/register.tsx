@@ -163,14 +163,20 @@ function promptFor(arrived: NoteFile[]): string {
 
 // ---------- server ----------
 // A running server for this project is reused unless the LAN was asked for and it only listens on loopback.
-async function portFor($: Eng, cwd: string, needLan = false): Promise<{ port: number; reuse?: string; lan?: string }> {
+async function portFor($: Eng, cwd: string, target: string, needLan = false): Promise<{ port: number; reuse?: string; lan?: string }> {
   for (let port = 8791; port < 8811; port++) {
     try {
       const res = await $.http.fetch(`http://127.0.0.1:${port}/__review/ping`)
       if (res.ok) {
         try {
-          const j = JSON.parse(res.text) as { inbox?: string; lan?: string | null }
-          if (j.inbox === inboxOf(cwd) && (!needLan || j.lan)) return { port, reuse: `http://127.0.0.1:${port}/__review/`, lan: j.lan ?? undefined }
+          const j = JSON.parse(res.text) as { inbox?: string; target?: string; lan?: string | null }
+          if (j.inbox === inboxOf(cwd)) {
+            // Only reuse a server that serves the same folder or dev server. One left over from an earlier
+            // session with a different root answers every page with a 404 or a directory listing.
+            const sameTarget = !j.target || j.target === target
+            if (sameTarget && (!needLan || j.lan)) return { port, reuse: `http://127.0.0.1:${port}/__review/`, lan: j.lan ?? undefined }
+            if (!sameTarget && (await quitServer($, port))) return { port }
+          }
         } catch {
           // another service answered; try the next port
         }
@@ -180,6 +186,23 @@ async function portFor($: Eng, cwd: string, needLan = false): Promise<{ port: nu
     }
   }
   return { port: 8791 + Math.floor(Math.random() * 1000) }
+}
+
+async function quitServer($: Eng, port: number): Promise<boolean> {
+  try {
+    await $.http.fetch(`http://127.0.0.1:${port}/__review/quit`, { method: 'POST' })
+  } catch {
+    return false
+  }
+  for (let i = 0; i < 20; i++) {
+    await $.clock.sleep(100)
+    try {
+      await $.http.fetch(`http://127.0.0.1:${port}/__review/ping`)
+    } catch {
+      return true // the port is free
+    }
+  }
+  return false
 }
 
 async function openBrowser($: Eng, url: string) {
@@ -207,7 +230,7 @@ async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<Serv
       // it died; start again
     }
   }
-  const found = await portFor($, cwd, !!opts.lan)
+  const found = await portFor($, cwd, target, !!opts.lan)
   if (found.reuse) {
     const info: ServerInfo = { cwd, port: found.port, target, page, url: `${found.reuse}${q}`, lanUrl: found.lan ? `${found.lan}/__review/${q}` : undefined }
     await update($, server, () => info)
