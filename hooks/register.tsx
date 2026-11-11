@@ -261,6 +261,16 @@ async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<Serv
   return info
 }
 
+function handoffPrompt(lan: boolean): string {
+  return [
+    'The user ran /markup with no target. Open the markup review layer with the review_open tool (mcp__markup-review__review_open):',
+    '- If this conversation just built, edited, previewed or discussed a specific page, open that page: set `root` to the folder that serves it (for a static site, the folder the page\'s URL paths are relative to, such as `site` or `dist`; never the project root when the pages live in a subfolder) or `proxy` to the dev server that is already running, and `page` to the page\'s path.',
+    '- Otherwise do not guess. Use the AskUserQuestion tool to ask which folder or dev server to serve and which page to open, offering the likely candidates you can see in the project (a `site`, `dist`, `public` or `build` folder; a dev server from the project config), then call review_open with the answer.',
+    lan ? '- The user passed --lan, so pass `lan: true` and hand over the LAN URL from the result.' : '',
+    'Then tell the user in two lines how the layer works: draw with D, arrows A, sticky notes N; backtick switches to editing the copy; Ctrl+/ is the TL;DR box; Cmd+Enter sends.',
+  ].filter(Boolean).join('\n')
+}
+
 function parseArgs(args: string): OpenOptions {
   const out: OpenOptions = {}
   const tokens = args.trim().split(/\s+/).filter(Boolean)
@@ -336,7 +346,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'markup',
-      description: 'Open the markup review layer over this project (a folder, or a dev server URL to proxy)',
+      description: 'Open the markup review layer over a page. With no target, Claude opens the page you were just working on, or asks which one.',
       argumentHint: '[folder | http://localhost:3000] [--page /path] [--lan]',
     })
     await $.tool.register({
@@ -381,8 +391,15 @@ export const register: Register = on => {
 
   on('command.run', { command: 'markup' }, async ($, e) => {
     const cwd = await $.session.cwd()
+    const opts = parseArgs(e.args)
+    if (!opts.root && !opts.proxy && !opts.page) {
+      // No target named. Serving the project root gives a directory listing, which is never what the user
+      // wanted. Hand the choice to Claude, which knows what page the conversation was just about.
+      void $.prompt.submit({ text: handoffPrompt(!!opts.lan) })
+      return { text: 'No page named. Asking Claude to open the page you were just working on, or to ask you which one.' }
+    }
     try {
-      const { url, opened, remote } = await openReview($, cwd, parseArgs(e.args))
+      const { url, opened, remote } = await openReview($, cwd, opts)
       return {
         text: [
           `Review layer: ${url}${opened ? '' : ' (open it in your browser)'}${remote ? `\n${remote}` : ''}`,

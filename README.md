@@ -23,10 +23,10 @@ The plugin includes a mod (a hooks module that runs inside Claude Code), which n
 
 ## Open any page for review with one command
 
-Run `/markup` in Claude Code and it starts the bundled server, opens the review page in your browser, and adds a Review pane beside the chat.
+Run `/markup` in Claude Code and it starts the bundled server, opens the review page in your browser, and adds a Review pane beside the chat. With no target, Claude opens the page the conversation was just about, or asks you which folder and page if none is in play, so you never land on a directory listing.
 
 ```
-/markup                               serve the project folder
+/markup                               open the page you were just working on (or Claude asks which)
 /markup dist                          serve a built folder
 /markup http://localhost:3000         proxy a running dev server
 /markup --page /pricing               open a specific page
