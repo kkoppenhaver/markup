@@ -594,9 +594,16 @@ function mountSlot(rec) {
   return true;
 }
 function restoreSlots() {
-  const kept = []; let dropped = 0;
-  slots.forEach((rec) => { if (mountSlot(rec)) kept.push(rec); else dropped++; });
-  slots = kept; if (dropped) saveSlots();
+  const kept = []; let dropped = 0, landed = 0;
+  // A slot whose text now appears in the source (Claude wrote the placeholder line into the file) has landed: drop it
+  // rather than show the same line twice.
+  const sourceTexts = new Set(Object.keys(originals).map((id) => norm(originals[id].text)));
+  slots.forEach((rec) => {
+    if (rec.text && rec.text !== SLOT_TEXT && sourceTexts.has(norm(rec.text))) { landed++; return; }
+    if (mountSlot(rec)) kept.push(rec); else dropped++;
+  });
+  slots = kept; if (dropped || landed) saveSlots();
+  if (landed) setTimeout(() => toast(landed + (landed === 1 ? ' slot' : ' slots') + ' already in the source, dropped'), 300);
 }
 function addSlotAfter(el) {
   let block = blockOf(el);
