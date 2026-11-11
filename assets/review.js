@@ -57,6 +57,7 @@ async function pollChanges() {
     if (stamp && changeStamp && stamp !== changeStamp && Date.now() - lastInput > 2000) {
       changeStamp = stamp;
       toast('Page changed on disk, reloading');
+      try { if (win) localStorage.setItem(storeKey + ':scroll', String(win.scrollY)); } catch (e) {}
       iframe.contentWindow.location.reload();
     } else if (stamp) changeStamp = stamp;
   } catch (e) {}
@@ -301,7 +302,7 @@ function restoreScroll() {
   const go = () => { if (win && Math.abs(win.scrollY - y) > 2) win.scrollTo({ top: y, behavior: 'instant' }); };
   go();
   // Images and placed screenshots load after the page does and push the text down; take the same spot again once they have.
-  setTimeout(go, 150); setTimeout(go, 600);
+  setTimeout(go, 150); setTimeout(go, 600); setTimeout(go, 1500);
 }
 function onPageLoad() {
   doc = iframe.contentDocument; win = iframe.contentWindow;
