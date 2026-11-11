@@ -122,11 +122,15 @@ function cssPath(el) {
 }
 function hasOwnText(el) { return Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim()); }
 // Text of an element with strike-throughs rendered as ~~text~~.
+// Line breaks and nested blocks that contenteditable creates when the reviewer presses Enter would otherwise
+// glue two sentences together ("person.Pick"), so they become a ¶ marker: "the reviewer split the paragraph here".
 function readText(el) {
   const clone = el.cloneNode(true);
   clone.querySelectorAll('strike, s, del').forEach((s) => { s.replaceWith(doc.createTextNode('~~' + s.textContent + '~~')); });
   clone.querySelectorAll('[style*="line-through"]').forEach((s) => { s.replaceWith(doc.createTextNode('~~' + s.textContent + '~~')); });
-  return clone.textContent.replace(/\s+/g, ' ').trim();
+  clone.querySelectorAll('br').forEach((br) => br.replaceWith(doc.createTextNode(' ¶ ')));
+  clone.querySelectorAll('div, p, li, h1, h2, h3, h4, h5, h6, blockquote').forEach((b) => { b.before(doc.createTextNode(' ¶ ')); b.after(doc.createTextNode(' ¶ ')); });
+  return clone.textContent.replace(/\s+/g, ' ').replace(/(?:¶ )+¶/g, '¶').replace(/^¶ |\s¶$/g, '').trim();
 }
 function indexPage() {
   originals = {};
@@ -687,6 +691,10 @@ async function send() {
     const j = await res.json();
     toast('Sent to Claude: ' + (j.path || '').split('/').pop());
     try { localStorage.setItem(storeKey + ':sent', new Date().toISOString()); } catch (e) {}
+    // The TL;DR is a note for this send. Once delivered, clear it so the next round starts blank instead of
+    // repeating it; edits and marks stay until the source catches up with them.
+    tldrText.value = ''; toggleTldr(false); updateCount();
+    try { localStorage.removeItem(storeKey + ':tldr'); } catch (e) {}
   } catch (err) {
     toast('Send failed. Is the review server running? (' + err.message + ')');
   } finally {
