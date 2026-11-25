@@ -4,13 +4,12 @@ This exact thing has happened to me so many times: I'd ask Claude Code for a lan
 
 This plugin puts a [tldraw](https://tldraw.dev) canvas over any local page so you can draw arrows, scribble notes, and retype the copy right where it sits, then, with one keystroke, you can hand all that feedback back to Claude.
 
-![The review layer over a blog post: a red arrow at a heading, a sentence struck through in the copy, a caption circled with a sticky note saying "drop this line?" beside it, an empty screenshot slot with its × control, and the TL;DR box, with the image and TL;DR buttons beside the drawing toolbar and Send to Claude in the top bar](docs/review-page.png)
+![The review layer over a blog post: a red arrow at a heading, a sentence struck through in the copy, a caption circled with a sticky note saying "drop this line?" beside it, an empty screenshot slot with its × control, and the Note box, with the image and Note buttons beside the drawing toolbar and Send to Claude in the top bar](docs/review-page.png)
 
 ## Get it running in Claude Code
 
 ```
-/plugin marketplace add kkoppenhaver/markup
-/plugin install markup-review@markup
+/plugin install markup --marketplace kkoppenhaver/markup
 ```
 
 Or from a local checkout:
@@ -73,7 +72,7 @@ If the mod isn't loaded, a prompt hook carries any unread notes along with your 
 
 **Hot reload.** When the server is serving a folder, it watches the folder and reloads the frame as soon as a file changes, which is how you watch Claude's edits land after you send a round. When it's proxying a dev server, the dev server's own hot reload passes straight through. Either way your marks, retyped text and placed screenshots are still there after the reload, and any edit Claude has already applied is dropped rather than painted onto the wrong line.
 
-**From your phone or another machine.** Run `/markup --lan` (or ask Claude for a link for your phone) and the server also listens on your local network. Claude hands you a second URL, something like `http://192.168.0.12:8791/__review/...`, and a Tailscale one if you have Tailscale installed. Open it on the phone and you're reviewing the same page, which pairs well with Claude Code's Remote Control: the session and the server stay on your Mac, you drive both from the couch. It's plain http on purpose. Touch works on the canvas, but a phone is better for retyping copy and writing the TL;DR than for drawing.
+**From your phone or another machine.** Run `/markup --lan` (or ask Claude for a link for your phone) and the server also listens on your local network. Claude hands you a second URL, something like `http://192.168.0.12:8791/__review/...`, and a Tailscale one if you have Tailscale installed. Open it on the phone and you're reviewing the same page, which pairs well with Claude Code's Remote Control: the session and the server stay on your Mac, you drive both from the couch. It's plain http on purpose. Touch works on the canvas, but a phone is better for retyping copy and writing the note than for drawing.
 
 Without `--lan` the server binds to 127.0.0.1 and nothing leaves your computer.
 

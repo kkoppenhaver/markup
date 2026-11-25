@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
 const PANE = {
-  plugin: 'markup-review',
+  plugin: 'markup',
   component: 'Pane',
-  requestId: 'markup-review',
+  requestId: 'markup',
   props: {
     title: 'Review',
     isFocused: false,
@@ -16,7 +16,7 @@ const PANE = {
 
 test('the pane explains itself before a server runs, on every surface', async ($, on) => {
   on('command.register', () => ({ value: { command: 'markup' } }))
-  on('tool.register', () => ({ value: {} }))
+  on('tool.register', (_, e) => ({ value: { tool: e.name } }))
   on('fs.exists', () => ({ value: false }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 

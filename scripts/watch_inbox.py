@@ -22,10 +22,10 @@ while True:
                 summary = ""
                 try:
                     data = json.load(open(path[:-3] + ".json"))
-                    tldr = (data.get("tldr") or "").strip().replace("\n", " ")
+                    note = (data.get("note") or data.get("tldr") or "").strip().replace("\n", " ")
                     summary = " | %d edits, %d marks" % (len(data.get("edits") or []), len(data.get("marks") or []))
-                    if tldr:
-                        summary += ' | TL;DR: "%s"' % (tldr[:160] + ("..." if len(tldr) > 160 else ""))
+                    if note:
+                        summary += ' | note: "%s"' % (note[:160] + ("..." if len(note) > 160 else ""))
                 except Exception:
                     pass
                 print("REVIEW NOTES ARRIVED: %s%s. Read the file (and its .png), apply the notes, reply per note." % (path, summary), flush=True)

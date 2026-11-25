@@ -1,16 +1,16 @@
-// markup-review mod: runs the bundled review server, watches .review/inbox, and hands notes to Claude.
+// markup mod: runs the bundled review server, watches .review/inbox, and hands notes to Claude.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { NoteFile, ServerInfo } from '../types'
 
-const PLUGIN = 'markup-review'
-const PANE = 'markup-review'
+const PLUGIN = 'markup'
+const PANE = 'markup'
 const TOOL_OPEN = `mcp__${PLUGIN}__review_open`
 const TOOL_NOTES = `mcp__${PLUGIN}__review_notes`
 
-const notes = atom({ plugin: 'markup-review', key: 'notes' } as const, [] as NoteFile[], { shape: 'notes-2' })
-const server = atom({ plugin: 'markup-review', key: 'server' } as const, null as ServerInfo | null, { shape: 'server-1' })
+const notes = atom({ plugin: 'markup', key: 'notes' } as const, [] as NoteFile[], { shape: 'notes-2' })
+const server = atom({ plugin: 'markup', key: 'server' } as const, null as ServerInfo | null, { shape: 'server-1' })
 
 type Eng = EngineInterface
 type OpenOptions = { root?: string; proxy?: string; page?: string; lan?: boolean }
@@ -289,7 +289,7 @@ async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<Serv
 
 function handoffPrompt(lan: boolean): string {
   return [
-    'The user ran /markup with no target. Open the markup review layer with the review_open tool (mcp__markup-review__review_open):',
+    'The user ran /markup with no target. Open the markup review layer with the review_open tool (mcp__markup__review_open):',
     '- If this conversation just built, edited, previewed or discussed a specific page, open that page: set `root` to the folder that serves it (for a static site, the folder the page\'s URL paths are relative to, such as `site` or `dist`; never the project root when the pages live in a subfolder) or `proxy` to the dev server that is already running, and `page` to the page\'s path.',
     '- Otherwise do not guess. Use the AskUserQuestion tool to ask which folder or dev server to serve and which page to open, offering the likely candidates you can see in the project (a `site`, `dist`, `public` or `build` folder; a dev server from the project config), then call review_open with the answer.',
     lan ? '- The user passed --lan, so pass `lan: true` and hand over the LAN URL from the result.' : '',
@@ -442,9 +442,9 @@ export const register: Register = on => {
     const cwd = await $.session.cwd()
     try {
       const { url, opened, remote } = await openReview($, cwd, { root: input.root, proxy: input.proxy, page: input.page, lan: input.lan })
-      return { result: `Review layer: ${url}${opened ? ' (opened in the browser)' : ' (open it in the browser)'}.${remote ? ` ${remote}` : ''} Notes land in ${inboxOf(cwd)}. Tell the user: draw with D, arrows A, sticky notes N; backtick switches to editing copy; Ctrl+/ is the TL;DR box; Cmd+Enter sends.` }
+      return { result: `Review layer: ${url}${opened ? ' (opened in the browser)' : ' (open it in the browser)'}.${remote ? ` ${remote}` : ''} Notes land in ${inboxOf(cwd)}. Tell the user: draw with D, arrows A, sticky notes N; backtick switches to editing copy; Ctrl+/ is the note box; Cmd+Enter sends.` }
     } catch (err) {
-      return { deny: `markup-review: ${err instanceof Error ? err.message : String(err)}` }
+      return { deny: `markup: ${err instanceof Error ? err.message : String(err)}` }
     }
   })
 
