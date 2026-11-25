@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -134,18 +135,23 @@ def claim(host, target, need_lan):
 
 
 def open_browser(url):
-    """Hands the URL to the system's opener and says whether it took it: open on macOS, Windows's own URL
-    handler on Windows, xdg-open elsewhere. No shell is involved, and it gives up after five seconds."""
-    quiet = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "timeout": 5}
-    try:
-        if sys.platform == "darwin":
-            return subprocess.run(["open", url], **quiet).returncode == 0
-        if os.name == "nt":
-            os.startfile(url)
-            return True
-        return subprocess.run(["xdg-open", url], **quiet).returncode == 0
-    except (OSError, subprocess.SubprocessError):
+    """Asks Python's webbrowser module to show the URL in the default browser, and says whether it took it.
+    The call runs on its own thread and is given five seconds, so a browser that never returns cannot hold
+    the server up. On Linux with no desktop there is nothing to open: the caller prints the URL instead."""
+    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return False
+    took = []
+
+    def ask():
+        try:
+            took.append(bool(webbrowser.open(url)))
+        except Exception:
+            took.append(False)
+
+    t = threading.Thread(target=ask, daemon=True)
+    t.start()
+    t.join(5)
+    return bool(took and took[0])
 
 
 def slug(s, n=40):

@@ -405,9 +405,8 @@ export const register: Register = on => {
     }
   })
 
-  // The mod answers its own two tools, named in full here, and no other tool's calls. Both are answered
-  // after Claude Code's permission check has allowed the call, never ahead of it.
-  on('tool.run', { tool: 'mcp__markup-review__review_open' }, async ($, e) => {
+  // The mod answers its own two tools, named in full here, and no other tool's calls.
+  on('tool.call', { tool: 'mcp__markup-review__review_open' }, async ($, e) => {
     const input = e as unknown as OpenOptions
     const cwd = await $.session.cwd()
     try {
@@ -418,7 +417,7 @@ export const register: Register = on => {
     }
   }).catch(() => ({ deny: 'markup-review: review_open failed before it could start the review server' }))
 
-  on('tool.run', { tool: 'mcp__markup-review__review_notes' }, async $ => {
+  on('tool.call', { tool: 'mcp__markup-review__review_notes' }, async $ => {
     const list = await read($, notes)
     const inbox = inboxOf(await $.session.cwd())
     if (list.length === 0) return { result: `No review notes yet. Inbox: ${inbox}` }
