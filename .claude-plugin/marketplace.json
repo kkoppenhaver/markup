@@ -2,10 +2,10 @@
   "name": "markup",
   "owner": { "name": "Keanan Koppenhaver" },
   "description": "Plugins and mods by Keanan Koppenhaver.",
-  "renames": { "markup-review": "markup" },
+  "renames": { "markup": "markup-review" },
   "plugins": [
     {
-      "name": "markup",
+      "name": "markup-review",
       "source": "./",
       "description": "Scribble on a page, retype its copy, press Cmd+Enter, and Claude gets the notes."
     }

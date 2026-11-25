@@ -5,11 +5,11 @@ description: Let the user review a web page by drawing on it and retyping its co
 
 # Markup review
 
-The user marks up a live page the way they would mark up a printout: arrows, circles, sticky notes, retyped sentences, strike-throughs, comments pinned to selected passages, and one note about the whole page. They press Cmd+Enter in the browser and the notes arrive here as a prompt from the markup mod, with the file paths. Your job is to open the layer when asked, then apply what comes back.
+The user marks up a live page the way they would mark up a printout: arrows, circles, sticky notes, retyped sentences, strike-throughs, comments pinned to selected passages, and one note about the whole page. They press Cmd+Enter in the browser and the notes arrive here as a prompt from the markup-review mod, with the file paths. Your job is to open the layer when asked, then apply what comes back.
 
 ## Open the review layer
 
-Call the `review_open` tool (listed as `mcp__markup__review_open`). The user can also run `/markup`; with no target that command hands the choice to you with the same rules as below.
+Call the `review_open` tool (listed as `mcp__markup-review__review_open`). The user can also run `/markup`; with no target that command hands the choice to you with the same rules as below.
 
 **Which page.** Never open the project root when you can name the page. If this conversation just built, edited, previewed or discussed a page, open that one: `root` is the folder its URL paths are relative to (`site`, `dist`, `public`, a docs folder), or `proxy` is the dev server already running, and `page` is its path. If no page is in play, do not guess: use the AskUserQuestion tool to ask which folder or dev server to serve and which page to open, offering the candidates you can see in the project, then call `review_open` with the answer. A directory listing in the review frame means this step was skipped.
 

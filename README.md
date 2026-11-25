@@ -9,7 +9,7 @@ This plugin puts a [tldraw](https://tldraw.dev) canvas over any local page so yo
 ## Get it running in Claude Code
 
 ```
-/plugin install markup --marketplace kkoppenhaver/markup
+/plugin install markup-review --marketplace kkoppenhaver/markup
 ```
 
 Or from a local checkout:

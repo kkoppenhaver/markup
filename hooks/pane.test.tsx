@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
 const PANE = {
-  plugin: 'markup',
+  plugin: 'markup-review',
   component: 'Pane',
-  requestId: 'markup',
+  requestId: 'markup-review',
   props: {
     title: 'Review',
     isFocused: false,

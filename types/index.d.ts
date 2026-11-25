@@ -1,4 +1,4 @@
-// State contract for the markup mod. Each value lives in $.state under the plugin's name.
+// State contract for the markup-review mod. Each value lives in $.state under the plugin's name.
 export type NoteStatus = 'new' | 'applying' | 'applied'
 
 export type NoteFile = {
@@ -35,7 +35,7 @@ export type ServerInfo = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'markup': {
+    'markup-review': {
       notes: Shaped<NoteFile[]>
       server: Shaped<ServerInfo | null>
     }
