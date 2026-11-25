@@ -4,10 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { NoteFile, ServerInfo } from '../types'
 
-const PLUGIN = 'markup'
 const PANE = 'markup'
-const TOOL_OPEN = `mcp__${PLUGIN}__review_open`
-const TOOL_NOTES = `mcp__${PLUGIN}__review_notes`
 
 const notes = atom({ plugin: 'markup', key: 'notes' } as const, [] as NoteFile[], { shape: 'notes-2' })
 const server = atom({ plugin: 'markup', key: 'server' } as const, null as ServerInfo | null, { shape: 'server-1' })
@@ -128,22 +125,22 @@ async function readNote($: Eng, inbox: string, name: string): Promise<NoteFile> 
   }
 }
 
-async function readDelivered($: Eng, cwd: string): Promise<string[]> {
-  const statePath = `${cwd}/.review/.delivered.json`
+// .review/.delivered.json is the one file the mod writes: the names of the note files already handed to Claude.
+// The path is written out at each call, relative to the session's working directory, so it can be read here.
+async function readDelivered($: Eng): Promise<string[]> {
   try {
-    if (await $.fs.exists(statePath)) return JSON.parse(await $.fs.read(statePath)) as string[]
+    if (await $.fs.exists('.review/.delivered.json')) return JSON.parse(await $.fs.read('.review/.delivered.json')) as string[]
   } catch {
     // unreadable state: treat as empty
   }
   return []
 }
 
-async function markDelivered($: Eng, cwd: string, names: string[]) {
-  const statePath = `${cwd}/.review/.delivered.json`
-  const delivered = await readDelivered($, cwd)
+async function markDelivered($: Eng, names: string[]) {
+  const delivered = await readDelivered($)
   const merged = Array.from(new Set([...delivered, ...names])).sort()
   try {
-    await $.fs.write(statePath, JSON.stringify(merged))
+    await $.fs.write('.review/.delivered.json', JSON.stringify(merged))
   } catch {
     // the classic hook may re-deliver once; harmless
   }
@@ -208,14 +205,23 @@ async function quitServer($: Eng, port: number): Promise<boolean> {
   return false
 }
 
+// Each opener is written out whole, so the programs the mod runs can be read here: open on macOS, xdg-open on
+// Linux, cmd /c start on Windows, each with the review URL and nothing else. The first to exit 0 wins.
 async function openBrowser($: Eng, url: string) {
-  for (const argv of [['open', url], ['xdg-open', url], ['cmd', '/c', 'start', '', url]]) {
-    try {
-      const ran = await $.process.run(argv, { timeoutMs: 5000 })
-      if (ran.exitCode === 0) return true
-    } catch {
-      // not this platform's opener
-    }
+  try {
+    if ((await $.process.run(['open', url], { timeoutMs: 5000 })).exitCode === 0) return true
+  } catch {
+    // not macOS
+  }
+  try {
+    if ((await $.process.run(['xdg-open', url], { timeoutMs: 5000 })).exitCode === 0) return true
+  } catch {
+    // not Linux
+  }
+  try {
+    if ((await $.process.run(['cmd', '/c', 'start', '', url], { timeoutMs: 5000 })).exitCode === 0) return true
+  } catch {
+    // not Windows
   }
   return false
 }
@@ -240,11 +246,16 @@ async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<Serv
     return info
   }
   const port = found.port
-  const argv = ['python3', `${$.plugin.root}/scripts/review_server.py`, '--port', String(port), '--inbox', inboxOf(cwd), '--path', page, '--quiet']
-  if (opts.proxy) argv.push('--proxy', opts.proxy)
-  else argv.push('--root', target)
-  if (opts.lan) argv.push('--lan')
-  const child = $.process.spawn({ argv, cwd })
+  // The whole command is written at the call: python3 running the server this plugin ships, and no other program.
+  const child = $.process.spawn({
+    argv: [
+      'python3', `${$.plugin.root}/scripts/review_server.py`,
+      '--port', String(port), '--inbox', inboxOf(cwd), '--path', page, '--quiet',
+      ...(opts.proxy ? ['--proxy', opts.proxy] : ['--root', target]),
+      ...(opts.lan ? ['--lan'] : []),
+    ],
+    cwd,
+  })
 
   const info = await new Promise<ServerInfo>((resolve, reject) => {
     let buffer = ''
@@ -335,7 +346,7 @@ async function poll($: Eng, cwd: string, watch: Watch) {
     if (unseen.length === 0) return
     // Several sessions can watch one project. The first to write a note's name into .delivered.json owns it;
     // the others list it in their pane as applied elsewhere and do not start a turn for it.
-    const taken = new Set(await readDelivered($, cwd))
+    const taken = new Set(await readDelivered($))
     const fresh = unseen.filter(n => !taken.has(n))
     const elsewhere = unseen.filter(n => taken.has(n))
     for (const name of elsewhere) watch.seen.add(name)
@@ -345,7 +356,7 @@ async function poll($: Eng, cwd: string, watch: Watch) {
       await update($, notes, list => [...seenElsewhere, ...list].slice(0, 50))
     }
     if (fresh.length === 0) return
-    await markDelivered($, cwd, fresh)
+    await markDelivered($, fresh)
     await $.clock.sleep(400) // let the server finish writing the json and png beside the markdown
     const arrived: NoteFile[] = []
     for (const name of fresh) {
@@ -437,7 +448,8 @@ export const register: Register = on => {
     }
   })
 
-  on('tool.call', { tool: TOOL_OPEN }, async ($, e) => {
+  // The two tool.call hooks answer the mod's own two tools, named in full here, and no other tool's calls.
+  on('tool.call', { tool: 'mcp__markup__review_open' }, async ($, e) => {
     const input = e as unknown as OpenOptions
     const cwd = await $.session.cwd()
     try {
@@ -446,15 +458,15 @@ export const register: Register = on => {
     } catch (err) {
       return { deny: `markup: ${err instanceof Error ? err.message : String(err)}` }
     }
-  })
+  }).catch(() => ({ deny: 'markup: review_open failed before it could start the review server' }))
 
-  on('tool.call', { tool: TOOL_NOTES }, async $ => {
+  on('tool.call', { tool: 'mcp__markup__review_notes' }, async $ => {
     const list = await read($, notes)
     const inbox = inboxOf(await $.session.cwd())
     if (list.length === 0) return { result: `No review notes yet. Inbox: ${inbox}` }
     const lines = list.map(n => `${n.sentAt} ${n.page} [${n.status}] ${n.edits} edits, ${n.marks} marks${n.images ? `, ${n.images} images` : ''}${n.comments ? `, ${n.comments} comments` : ''}${n.note ? ` Note: ${n.note}` : ''}${n.summary ? `\n  ${n.summary}` : ''}\n  file: ${n.path}${n.pngPath ? `\n  png: ${n.pngPath}` : ''}`)
     return { result: `Inbox: ${inbox}\n\n${lines.join('\n')}` }
-  })
+  }).catch(() => ({ deny: 'markup: review_notes could not read the notes list' }))
 
   on('turn.complete', async ($, e, next) => {
     if (watch.applying > 0 && e.agentId === undefined) {

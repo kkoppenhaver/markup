@@ -108,10 +108,30 @@ It also reads the PNG, since the strokes show things the text can't (like what y
 
 ## What it runs and what it reaches
 
-- **Runs:** the mod starts `scripts/review_server.py` with `python3` when you open a review, and opens your browser at the review URL. A prompt hook runs `scripts/inject_notes.py`, which reads `.review/inbox/` and keeps a list of what it has already shown in `.review/.delivered.json`.
-- **Writes:** your notes, as files in `.review/inbox/` in your project. Marks and edits you haven't sent yet stay in your browser's storage for that page.
-- **Reaches:** the mod talks to the server on `127.0.0.1` and nothing else. The review page in your browser loads React and tldraw from `esm.sh`, and tldraw fetches its own assets from `cdn.tldraw.com`. If you point it at a dev server, the server fetches pages from that address. With `--lan` it listens on your network, and runs `tailscale ip -4` to print a Tailscale link if Tailscale is installed.
-- **Sends:** nothing to me or to any service. Your notes go from the browser to the local server and into the inbox.
+Everything the plugin does on your machine, in one place.
+
+**The programs the mod runs, and why.** There are two, and both start only when you open a review:
+
+- `python3`, to run the server the plugin ships, `scripts/review_server.py`. Its arguments are the port, your project's `.review/inbox/` folder, the page to open, the folder to serve or the dev server to proxy, and `--lan` if you asked for it.
+- Your system's opener, to show the review page in your browser: `open` on macOS, `xdg-open` on Linux, `cmd /c start` on Windows. Its only argument is the review URL.
+
+The mod runs no other program. With `--lan`, the server runs `tailscale ip -4` once, to print a Tailscale link if Tailscale is installed.
+
+**What the hook does.** The plugin has one command hook, on `UserPromptSubmit`. When you send a prompt it runs `python3 scripts/inject_notes.py`, which looks in `.review/inbox/` for notes Claude hasn't been handed yet, prints them so they travel with your message, and adds their names to `.review/.delivered.json`. It prints nothing when there is nothing new. It doesn't read your prompt, block it or change it, and it never sees a tool call.
+
+**What gets written.**
+
+- The mod writes one file, `.review/.delivered.json` in your project: the list of note files already handed to Claude. It doesn't edit a build file, a start-up file, a settings file or an instructions file such as `CLAUDE.md`.
+- The server writes your notes into `.review/inbox/` in your project, as the files described under "Send it with Cmd+Enter".
+- Marks and edits you haven't sent yet stay in your browser's storage for that page.
+
+**What the mod sends, and where.** The only host the mod contacts is `127.0.0.1`, over plain http, on the port the review server uses (8791 to 8810, or a higher one when those are taken). It sends two requests, neither with a body: `GET /__review/ping`, to find or check the server, and `POST /__review/quit`, to stop a leftover server that is serving a different folder. Nothing goes to me or to any service.
+
+**What the mod puts in the prompts it submits.** When notes arrive from the page, the mod submits one prompt for you. It holds a fixed instruction to apply the notes the way the skill describes, and then, for each notes file, the file's path, the path of the strokes PNG, and the text of the notes file itself, which is what the example above shows. When you run `/markup` with no target, the mod leaves Claude a fixed instruction to open the page you were just working on, or to ask you which one. It adds nothing else to any prompt.
+
+**The tools it answers.** The mod adds two tools, `review_open` and `review_notes`, and answers calls to those two itself. It doesn't block, rewrite or stand in for any other tool.
+
+**What the review page and the server reach.** The page in your browser loads React and tldraw from `esm.sh`, and tldraw fetches its own assets from `cdn.tldraw.com`. Your notes go from the browser to the local server and into the inbox. If you point the server at a dev server, it fetches pages from that address. With `--lan` the server also listens on your network.
 
 ## Find your way around the code
 
