@@ -4,7 +4,7 @@ This exact thing has happened to me so many times: I'd ask Claude Code for a lan
 
 This plugin puts a [tldraw](https://tldraw.dev) canvas over any local page so you can draw arrows, scribble notes, and retype the copy right where it sits, then, with one keystroke, you can hand all that feedback back to Claude.
 
-![The review layer over a blog post: a red arrow at a heading, a sentence struck through in the copy, a caption circled with a sticky note saying "drop this line?" beside it, an empty screenshot slot with its × control, and the Note box, with the image and Note buttons beside the drawing toolbar and Send to Claude in the top bar](docs/review-page.png)
+![The review layer over a blog post: a red arrow at a heading, a sentence struck through in the copy, a sticky note in the margin saying "tighten this paragraph?", a phrase highlighted where a comment is pinned, a subheading circled in red, and the Note box open, with the image and Note buttons beside the drawing toolbar and Send to Claude in the top bar](docs/review-page.png)
 
 ## Get it running in Claude Code
 
@@ -105,6 +105,13 @@ Too much copy above the fold. Cut the second paragraph.
 ```
 
 It also reads the PNG, since the strokes show things the text can't (like what you circled).
+
+## What it runs and what it reaches
+
+- **Runs:** the mod starts `scripts/review_server.py` with `python3` when you open a review, and opens your browser at the review URL. A prompt hook runs `scripts/inject_notes.py`, which reads `.review/inbox/` and keeps a list of what it has already shown in `.review/.delivered.json`.
+- **Writes:** your notes, as files in `.review/inbox/` in your project. Marks and edits you haven't sent yet stay in your browser's storage for that page.
+- **Reaches:** the mod talks to the server on `127.0.0.1` and nothing else. The review page in your browser loads React and tldraw from `esm.sh`, and tldraw fetches its own assets from `cdn.tldraw.com`. If you point it at a dev server, the server fetches pages from that address. With `--lan` it listens on your network, and runs `tailscale ip -4` to print a Tailscale link if Tailscale is installed.
+- **Sends:** nothing to me or to any service. Your notes go from the browser to the local server and into the inbox.
 
 ## Find your way around the code
 

@@ -1,10 +1,14 @@
 {
   "name": "markup",
   "displayName": "Markup",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Scribble on a page, retype its copy, press Cmd+Enter, and Claude gets the notes. A tldraw layer over any local page, served by a bundled Python server, with a /markup command and a notes pane.",
   "author": { "name": "Keanan Koppenhaver" },
   "license": "MIT",
+  "homepage": "https://github.com/kkoppenhaver/markup",
+  "repository": "https://github.com/kkoppenhaver/markup",
+  "icon": "./.claude-plugin/icon.png",
+  "network": { "hosts": ["127.0.0.1", "localhost", "esm.sh", "cdn.tldraw.com"] },
   "keywords": ["review", "feedback", "tldraw", "design", "copy", "mod"],
   "types": "./types/index.d.ts"
 }
