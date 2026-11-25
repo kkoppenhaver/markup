@@ -1,4 +1,5 @@
-// markup-review mod: runs the bundled review server, watches .review/inbox, and hands notes to Claude.
+// markup-review mod: starts the bundled review server, watches .review/inbox, and hands notes to Claude.
+// It runs one program (python3, on that server), writes one file, makes no network request, and answers two tools.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -162,117 +163,62 @@ function promptFor(arrived: NoteFile[]): string {
 }
 
 // ---------- server ----------
-// A running server for this project is reused unless the LAN was asked for and it only listens on loopback.
-async function portFor($: Eng, cwd: string, target: string, needLan = false): Promise<{ port: number; reuse?: string; lan?: string }> {
-  for (let port = 8791; port < 8811; port++) {
-    try {
-      const res = await $.http.fetch(`http://127.0.0.1:${port}/__review/ping`)
-      if (res.ok) {
-        try {
-          const j = JSON.parse(res.text) as { inbox?: string; target?: string; lan?: string | null }
-          if (j.inbox === inboxOf(cwd)) {
-            // Only reuse a server that serves the same folder or dev server. One left over from an earlier
-            // session with a different root answers every page with a 404 or a directory listing.
-            const sameTarget = !j.target || j.target === target
-            if (sameTarget && (!needLan || j.lan)) return { port, reuse: `http://127.0.0.1:${port}/__review/`, lan: j.lan ?? undefined }
-            if (!sameTarget && (await quitServer($, port))) return { port }
-          }
-        } catch {
-          // another service answered; try the next port
-        }
-      }
-    } catch {
-      return { port }
-    }
-  }
-  return { port: 8791 + Math.floor(Math.random() * 1000) }
-}
+// The mod runs one program: python3, on the server this plugin ships, and the whole command is written at the
+// call. The server finds its own port: it uses a server already running for this project, takes the place of
+// one that serves another folder, or starts on a free port. It opens the browser itself. The mod makes no
+// network request and starts no other program; it reads what the server prints.
+type Started = { info: ServerInfo; opened: boolean }
 
-async function quitServer($: Eng, port: number): Promise<boolean> {
-  try {
-    await $.http.fetch(`http://127.0.0.1:${port}/__review/quit`, { method: 'POST' })
-  } catch {
-    return false
-  }
-  for (let i = 0; i < 20; i++) {
-    await $.clock.sleep(100)
-    try {
-      await $.http.fetch(`http://127.0.0.1:${port}/__review/ping`)
-    } catch {
-      return true // the port is free
-    }
-  }
-  return false
-}
+// The newest server this session started. An older one ending must not clear the newer one's entry, which can
+// sit on the same port after a takeover.
+let newest: object | null = null
 
-// Each opener is written out whole, so the programs the mod runs can be read here: open on macOS, xdg-open on
-// Linux, cmd /c start on Windows, each with the review URL and nothing else. The first to exit 0 wins.
-async function openBrowser($: Eng, url: string) {
-  try {
-    if ((await $.process.run(['open', url], { timeoutMs: 5000 })).exitCode === 0) return true
-  } catch {
-    // not macOS
-  }
-  try {
-    if ((await $.process.run(['xdg-open', url], { timeoutMs: 5000 })).exitCode === 0) return true
-  } catch {
-    // not Linux
-  }
-  try {
-    if ((await $.process.run(['cmd', '/c', 'start', '', url], { timeoutMs: 5000 })).exitCode === 0) return true
-  } catch {
-    // not Windows
-  }
-  return false
-}
-
-async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<ServerInfo> {
+async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<Started> {
   const page = opts.page ?? '/'
   const target = opts.proxy ?? (opts.root ? (isAbsolute(opts.root) ? opts.root : `${cwd}/${opts.root}`) : cwd)
-  const q = `?url=${encodeURIComponent(page)}`
-  const current = await read($, server)
-  if (current && current.cwd === cwd && current.target === target && (!opts.lan || current.lanUrl)) {
-    try {
-      const res = await $.http.fetch(`http://127.0.0.1:${current.port}/__review/ping`)
-      if (res.ok) return { ...current, page, url: `http://127.0.0.1:${current.port}/__review/${q}`, lanUrl: current.lanUrl && current.lanUrl.replace(/\?.*$/, '') + q }
-    } catch {
-      // it died; start again
-    }
-  }
-  const found = await portFor($, cwd, target, !!opts.lan)
-  if (found.reuse) {
-    const info: ServerInfo = { cwd, port: found.port, target, page, url: `${found.reuse}${q}`, lanUrl: found.lan ? `${found.lan}/__review/${q}` : undefined }
-    await update($, server, () => info)
-    return info
-  }
-  const port = found.port
-  // The whole command is written at the call: python3 running the server this plugin ships, and no other program.
   const child = $.process.spawn({
     argv: [
       'python3', `${$.plugin.root}/scripts/review_server.py`,
-      '--port', String(port), '--inbox', inboxOf(cwd), '--path', page, '--quiet',
+      '--reuse', '--open', '--quiet', '--inbox', inboxOf(cwd), '--path', page,
       ...(opts.proxy ? ['--proxy', opts.proxy] : ['--root', target]),
       ...(opts.lan ? ['--lan'] : []),
     ],
     cwd,
   })
 
-  const info = await new Promise<ServerInfo>((resolve, reject) => {
+  const started = await new Promise<Started>((resolve, reject) => {
+    const mine = {}
     let buffer = ''
     let settled = false
+    let ours = 0 // the port of a server this call started; 0 for one it found running, which is not ours to forget
     void (async () => {
       try {
         for await (const { text } of child) {
           buffer += text
           if (!settled) {
-            const m = buffer.match(/review\s*:\s*(http\S+)/)
-            // With --lan the server prints its lan (and tailscale) lines right after; wait one tick for them.
-            if (m && (!opts.lan || /lan\s*:/.test(buffer) || /\n\s*$/.test(buffer.slice(m.index! + m[0].length)))) {
+            // The server ends its lines with "opened: yes" or "opened: no", so everything above is complete by then.
+            const url = buffer.match(/review\s*:\s*(http\S+)/)?.[1]
+            const opened = buffer.match(/opened\s*:\s*(yes|no)/)?.[1]
+            if (url && opened) {
               settled = true
-              const lan = buffer.match(/\blan\s*:\s*(http\S+)/)
-              const ts = buffer.match(/tailscale\s*:\s*(http\S+)/)
-              resolve({ cwd, port, target, page, url: m[1] ?? `http://127.0.0.1:${port}/__review/`, lanUrl: lan?.[1], tailscaleUrl: ts?.[1] })
-            } else if (/Address already in use|Traceback|Errno/.test(buffer)) {
+              const port = Number(url.match(/:(\d+)\//)?.[1] ?? 0)
+              if (!/reused\s*:\s*yes/.test(buffer)) {
+                ours = port
+                newest = mine
+              }
+              resolve({
+                opened: opened === 'yes',
+                info: {
+                  cwd,
+                  port,
+                  target: buffer.match(/serving\s*:\s*(.+)/)?.[1]?.trim() ?? target,
+                  page,
+                  url,
+                  lanUrl: buffer.match(/\blan\s*:\s*(http\S+)/)?.[1],
+                  tailscaleUrl: buffer.match(/tailscale\s*:\s*(http\S+)/)?.[1],
+                },
+              })
+            } else if (/Traceback|Errno|no free port/.test(buffer)) {
               settled = true
               reject(new Error(buffer.slice(-500)))
             }
@@ -285,17 +231,20 @@ async function startServer($: Eng, cwd: string, opts: OpenOptions): Promise<Serv
           reject(err instanceof Error ? err : new Error(String(err)))
         }
       }
-      // The child ended: forget it if it was ours.
-      await update($, server, s => (s && s.port === port ? null : s))
-      $.ui.status(undefined)
+      // The child ended: forget it if it was a server this call started and no newer one has replaced it.
+      if (ours && newest === mine) {
+        newest = null
+        await update($, server, s => (s && s.port === ours ? null : s))
+        $.ui.status(undefined)
+      }
       if (!settled) {
         settled = true
         reject(new Error(`review server exited before it was ready: ${buffer.slice(-500)}`))
       }
     })()
   })
-  await update($, server, () => info)
-  return info
+  await update($, server, () => started.info)
+  return started
 }
 
 function handoffPrompt(lan: boolean): string {
@@ -323,8 +272,7 @@ function parseArgs(args: string): OpenOptions {
 }
 
 async function openReview($: Eng, cwd: string, opts: OpenOptions): Promise<{ url: string; opened: boolean; remote: string }> {
-  const info = await startServer($, cwd, opts)
-  const opened = await openBrowser($, info.url)
+  const { info, opened } = await startServer($, cwd, opts)
   $.ui.status(`review: ${info.url}`)
   void $.ui.open({ id: PANE, title: 'Review' })
   // What to hand someone on a phone or another machine. Plain http on purpose: tldraw treats https on a real hostname as production.
@@ -332,6 +280,15 @@ async function openReview($: Eng, cwd: string, opts: OpenOptions): Promise<{ url
     ? [info.lanUrl ? `On a phone or another machine on the same network: ${info.lanUrl}` : 'Could not work out the LAN address; check ifconfig.', info.tailscaleUrl ? `Over Tailscale: ${info.tailscaleUrl}` : ''].filter(Boolean).join(' ')
     : ''
   return { url: info.url, opened, remote }
+}
+
+// The pane's button: the same call again, which finds the server running (or starts it) and opens its page.
+async function reopen($: Eng, srv: ServerInfo) {
+  try {
+    await openReview($, srv.cwd, { ...(/^https?:\/\//.test(srv.target) ? { proxy: srv.target } : { root: srv.target }), page: srv.page, lan: !!srv.lanUrl })
+  } catch {
+    $.ui.toast('Could not open the review page. Run /markup again.')
+  }
 }
 
 // ---------- the mod ----------
@@ -448,8 +405,9 @@ export const register: Register = on => {
     }
   })
 
-  // The two tool.call hooks answer the mod's own two tools, named in full here, and no other tool's calls.
-  on('tool.call', { tool: 'mcp__markup-review__review_open' }, async ($, e) => {
+  // The mod answers its own two tools, named in full here, and no other tool's calls. Both are answered
+  // after Claude Code's permission check has allowed the call, never ahead of it.
+  on('tool.run', { tool: 'mcp__markup-review__review_open' }, async ($, e) => {
     const input = e as unknown as OpenOptions
     const cwd = await $.session.cwd()
     try {
@@ -460,7 +418,7 @@ export const register: Register = on => {
     }
   }).catch(() => ({ deny: 'markup-review: review_open failed before it could start the review server' }))
 
-  on('tool.call', { tool: 'mcp__markup-review__review_notes' }, async $ => {
+  on('tool.run', { tool: 'mcp__markup-review__review_notes' }, async $ => {
     const list = await read($, notes)
     const inbox = inboxOf(await $.session.cwd())
     if (list.length === 0) return { result: `No review notes yet. Inbox: ${inbox}` }
@@ -494,7 +452,7 @@ export const register: Register = on => {
             <Link href={srv.url} label="Review page" />
             {srv.lanUrl && <Link href={srv.lanUrl} label="On the LAN (phone)" />}
             {srv.tailscaleUrl && <Link href={srv.tailscaleUrl} label="Over Tailscale" />}
-            <Button key="open" label="Open in browser" onPress={() => void openBrowser($, srv.url)} />
+            <Button key="open" label="Open in browser" onPress={() => void reopen($, srv)} />
           </Box>
         ) : (
           <Box flexDirection="column" marginBottom={1}>

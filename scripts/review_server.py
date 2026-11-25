@@ -7,6 +7,7 @@ Standard library only. Python 3.8+.
   review_server.py --root ./dist                 # static folder
   review_server.py --proxy http://localhost:3000 # wrap a running dev server
   review_server.py --root . --path /about.html --open
+  review_server.py --reuse --root ./dist         # use the server already running for this project, or start one
 
 The review layer lives at /__review/?url=<page path>. Notes land in <inbox>/<timestamp>-<slug>.md (+ .json, .png).
 """
@@ -16,6 +17,7 @@ import datetime as dt
 import http.client
 import json
 import os
+import random
 import re
 import shutil
 import socket
@@ -25,7 +27,6 @@ import sys
 import threading
 import time
 import urllib.parse
-import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -54,6 +55,97 @@ def tailscale_ip():
         return out[0] if out else None
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+PORTS = range(8791, 8811)  # where --reuse looks for this project's review server, and where it starts a new one
+
+
+def probe(port):
+    """What listens on 127.0.0.1:<port>: None when nothing does, a review server's ping as a dict, {} for anything else."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=0.5)
+    try:
+        conn.request("GET", "/__review/ping")
+        body = conn.getresponse().read()
+    except ConnectionRefusedError:
+        return None
+    except (OSError, http.client.HTTPException):
+        return {}
+    finally:
+        conn.close()
+    try:
+        seen = json.loads(body)
+    except ValueError:
+        return {}
+    return seen if isinstance(seen, dict) and seen.get("inbox") else {}
+
+
+def ask_to_quit(port):
+    """Asks the review server on <port> to stop, and says whether the port came free within two seconds."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+    try:
+        conn.request("POST", "/__review/quit")
+        conn.getresponse().read()
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
+    for _ in range(20):
+        time.sleep(0.1)
+        if probe(port) is None:
+            return True
+    return False
+
+
+def bind(host, port):
+    try:
+        return ThreadingHTTPServer((host, port), Handler)
+    except OSError:
+        return None
+
+
+def claim(host, target, need_lan):
+    """Finds this project's place among the review ports. Returns (httpd, port, running): either a bound
+    server to start, or the ping of a server already running for this inbox and target, which is used as it
+    is. A server for this inbox that serves another target is asked to quit and its port is taken: left
+    running, it would answer every page of the new target with a 404 or a directory listing."""
+    for port in PORTS:
+        seen = probe(port)
+        if seen is None:
+            httpd = bind(host, port)
+            if httpd:
+                return httpd, port, None
+            seen = probe(port) or {}  # another session took the port between the probe and the bind
+        if seen.get("inbox") != Handler.inbox:
+            continue  # another project's review server, or another service
+        same = not seen.get("target") or seen["target"] == target
+        if same and (not need_lan or seen.get("lan")):
+            return None, port, seen
+        if not same and ask_to_quit(port):
+            httpd = bind(host, port)
+            if httpd:
+                return httpd, port, None
+        # Same target, but it listens on loopback only and the LAN was asked for: leave it and take another port.
+    for _ in range(20):
+        port = PORTS.stop + random.randrange(1000)
+        httpd = bind(host, port)
+        if httpd:
+            return httpd, port, None
+    raise SystemExit("review server: no free port from %d to %d" % (PORTS.start, PORTS.stop + 999))
+
+
+def open_browser(url):
+    """Hands the URL to the system's opener and says whether it took it: open on macOS, Windows's own URL
+    handler on Windows, xdg-open elsewhere. No shell is involved, and it gives up after five seconds."""
+    quiet = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "timeout": 5}
+    try:
+        if sys.platform == "darwin":
+            return subprocess.run(["open", url], **quiet).returncode == 0
+        if os.name == "nt":
+            os.startfile(url)
+            return True
+        return subprocess.run(["xdg-open", url], **quiet).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def slug(s, n=40):
@@ -103,6 +195,7 @@ class Handler(SimpleHTTPRequestHandler):
     quiet = False
     watcher = None
     lan = None     # http://<lan ip>:<port> when listening on all interfaces, else None
+    tailscale = None  # http://<tailscale ip>:<port> when listening on all interfaces and tailscale answered
     httpd = None   # set in main(); /__review/quit shuts it down
 
     def __init__(self, *a, **kw):
@@ -120,7 +213,7 @@ class Handler(SimpleHTTPRequestHandler):
         if p == "/__review/review.js":
             return self.send_file(os.path.join(ASSETS, "review.js"), "application/javascript; charset=utf-8")
         if p == "/__review/ping":
-            return self.send_json({"ok": True, "inbox": Handler.inbox, "mode": "proxy" if Handler.proxy else "static", "target": Handler.proxy or Handler.root, "lan": Handler.lan})
+            return self.send_json({"ok": True, "inbox": Handler.inbox, "mode": "proxy" if Handler.proxy else "static", "target": Handler.proxy or Handler.root, "lan": Handler.lan, "tailscale": Handler.tailscale})
         if p == "/__review/changes":
             return self.send_json({"stamp": Handler.watcher.stamp if Handler.watcher else None})
         if p == "/__review/pending":
@@ -145,9 +238,9 @@ class Handler(SimpleHTTPRequestHandler):
         if p == "/__review/send":
             return self.receive_notes()
         if p == "/__review/quit":
-            # The mod asks a server that serves the wrong folder for this project to step aside so it can
-            # start one on the same port with the right one. Shut down from another thread; serve_forever
-            # returns and main() exits.
+            # A server started with --reuse asks one that serves the wrong folder for this project to step
+            # aside, so it can start on the same port with the right one. Shut down from another thread;
+            # serve_forever returns and main() exits.
             self.send_json({"ok": True})
             if Handler.httpd:
                 threading.Thread(target=Handler.httpd.shutdown, daemon=True).start()
@@ -324,6 +417,7 @@ def main():
     ap.add_argument("--inbox", default=None, help="where notes land (default: ./.review/inbox under the current directory)")
     ap.add_argument("--path", default="/", help="page path to open in the review layer")
     ap.add_argument("--open", action="store_true", help="open the review URL in the default browser")
+    ap.add_argument("--reuse", action="store_true", help="look on ports 8791 to 8810 for a review server already running for this inbox: use it if it serves the same folder or dev server, ask it to quit if it serves another, and otherwise start on the first free port (--port is ignored)")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -332,33 +426,54 @@ def main():
     Handler.inbox = os.path.abspath(args.inbox or os.path.join(os.getcwd(), ".review", "inbox"))
     Handler.quiet = args.quiet
     os.makedirs(Handler.inbox, exist_ok=True)
-    if not Handler.proxy:
-        Handler.watcher = Watcher(Handler.root)
-        Handler.watcher.start()
 
     socketserver.TCPServer.allow_reuse_address = True
     host = "0.0.0.0" if args.lan else args.host
-    httpd = ThreadingHTTPServer((host, args.port), Handler)
-    Handler.httpd = httpd
+    target = Handler.proxy or Handler.root
+    if args.reuse:
+        httpd, port, running = claim(host, target, args.lan)
+    else:
+        httpd, port, running = ThreadingHTTPServer((host, args.port), Handler), args.port, None
     path_q = urllib.parse.quote(args.path, safe="")
-    shown = "127.0.0.1" if host in ("0.0.0.0", "") else host
-    url = "http://%s:%d/__review/?url=%s" % (shown, args.port, path_q)
+    shown = "127.0.0.1" if running or host in ("0.0.0.0", "") else host
+    url = "http://%s:%d/__review/?url=%s" % (shown, port, path_q)
+
+    if running:
+        # A server for this project and target is already up: say where it is, open the page if asked, and leave.
+        print("markup-review")
+        print("  serving : %s" % target)
+        print("  inbox   : %s" % Handler.inbox)
+        print("  review  : %s" % url)
+        if running.get("lan"):
+            print("  lan     : %s/__review/?url=%s" % (running["lan"], path_q))
+        if running.get("tailscale"):
+            print("  tailscale: %s/__review/?url=%s" % (running["tailscale"], path_q))
+        print("  reused  : yes")
+        print("  opened  : %s" % ("yes" if args.open and open_browser(url) else "no"))
+        return
+
+    Handler.httpd = httpd
+    if not Handler.proxy:
+        Handler.watcher = Watcher(Handler.root)
+        Handler.watcher.start()
     print("markup-review")
-    print("  serving : %s" % (Handler.proxy or Handler.root))
+    print("  serving : %s" % target)
     print("  inbox   : %s" % Handler.inbox)
     print("  review  : %s" % url)
     if host in ("0.0.0.0", ""):
         # Plain http on purpose: tldraw treats https on a real hostname as production and wants a license key there.
         ip = lan_ip()
         if ip:
-            Handler.lan = "http://%s:%d" % (ip, args.port)
+            Handler.lan = "http://%s:%d" % (ip, port)
             print("  lan     : %s/__review/?url=%s" % (Handler.lan, path_q))
         ts = tailscale_ip()
         if ts:
-            print("  tailscale: http://%s:%d/__review/?url=%s" % (ts, args.port, path_q))
+            Handler.tailscale = "http://%s:%d" % (ts, port)
+            print("  tailscale: %s/__review/?url=%s" % (Handler.tailscale, path_q))
+    # Always the last line, so whoever started the server knows the lines above are complete. The socket is
+    # already listening, so the browser's first request waits for serve_forever below.
+    print("  opened  : %s" % ("yes" if args.open and open_browser(url) else "no"))
     sys.stdout.flush()
-    if args.open:
-        webbrowser.open(url)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

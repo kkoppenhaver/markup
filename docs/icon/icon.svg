@@ -1,6 +1,6 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <!-- Markup plugin icon. A page on a dark drawing canvas: an orange circle and strike (drawn marks) and a teal
-       suggestion with an I-beam caret (a retyped line). Export: docs/icon/export.sh -> .claude-plugin/icon.png -->
+       suggestion with an I-beam caret (a retyped line). The export script beside this file renders it to a PNG. -->
   <defs>
     <radialGradient id="slate" cx=".3" cy=".2" r="1.1"><stop offset="0" stop-color="#2f3b4a"/><stop offset="1" stop-color="#121820"/></radialGradient>
   </defs>

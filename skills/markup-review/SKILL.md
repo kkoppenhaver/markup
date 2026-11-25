@@ -25,7 +25,7 @@ Tell the user in two lines how it works: draw with the tldraw tools, backtick sw
 If the mod is not loaded (no `review_open` tool), fall back to running the server by hand from the project root and watching the inbox with the Monitor tool:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/markup_server.py" --root . --port 8791 --path /
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review_server.py" --root . --port 8791 --path /
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/watch_inbox.py"
 ```
 
