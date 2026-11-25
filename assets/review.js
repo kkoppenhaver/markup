@@ -85,9 +85,12 @@ document.querySelectorAll('#bar .modes button').forEach((b) => b.addEventListene
 function onKey(e) {
   if (e.target === cmtText) return; // the comment box handles its own keys
   if (e.key === 'Escape' && cmtBox.classList.contains('open')) { e.preventDefault(); closeCommentBox(); return; }
-  const typing = e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+  // A sticky note or text label on the canvas is a contenteditable in this document, not an input.
+  // The page's own editable copy lives in the frame's document, where ` still flips back to drawing.
+  const typing = e.target && (/^(INPUT|TEXTAREA)$/.test(e.target.tagName) || (e.target.isContentEditable && e.target.ownerDocument === document));
   if (e.ctrlKey && !e.metaKey && ['1', '2', '3'].includes(e.key)) { e.preventDefault(); setMode(['draw', 'edit', 'browse'][+e.key - 1]); return; }
-  if (e.ctrlKey && e.key === '/') { e.preventDefault(); toggleTldr(); return; }
+  // tldraw binds Ctrl+/ (and Cmd+/) to its own dark mode toggle, so keep the key from reaching it.
+  if (e.ctrlKey && e.key === '/') { e.preventDefault(); e.stopImmediatePropagation(); toggleTldr(); return; }
   if (e.key === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && body.dataset.mode === 'draw' && !typing) { e.preventDefault(); togglePlacing(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); return; }
   if (e.key === 'Escape' && placing) { e.preventDefault(); stopPlacing(); toast('Cancelled'); return; }
